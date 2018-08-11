@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<launch>
+
+  <node name="sdl2_mixer" pkg="sdl2_ros" type="sdl2_mixer"
+      output="screen" >
+    <param name="sound" value="$(find sdl2_ros)/data/blast.wav" />
+  </node>
+
+</launch>
