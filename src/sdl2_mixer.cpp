@@ -44,14 +44,14 @@ public:
 
   void audioCallback(const std_msgs::Int16MultiArray::ConstPtr& msg)
   {
-    ROS_INFO_STREAM(msg->data.size());
+    // ROS_INFO_STREAM(msg->data.size());
     AudioChunk audio_chunk(msg);
     const int channel = Mix_PlayChannel(-1, &audio_chunk.chunk, 0);
     while (Mix_Playing(channel))
     {
       ros::Duration(0.2).sleep();
     }
-    ROS_INFO_STREAM("finished");
+    // ROS_INFO_STREAM("finished");
   }
 #if 0
   std::string sound_file = "test.wav";
