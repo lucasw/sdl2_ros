@@ -4,6 +4,7 @@ project(sdl2_ros)
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   roslint
+  std_msgs
 )
 
 roslint_cpp()
