@@ -40,8 +40,21 @@ struct ViewImage {
       SDL_UnlockTexture(buffer_);
       SDL_RenderCopy(ren_, buffer_, NULL, NULL);
 #endif
+
       SDL_RenderPresent(ren_);
       // SDL_UpdateWindowSurface(win_);
+
+      // THis is super slow
+      const auto t0 = ros::Time::now();
+      for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+          SDL_SetRenderDrawColor(ren_, 255, x % 255, 0, 255);
+          SDL_RenderDrawPoint(ren_, x, y);
+        }
+      }
+      const auto t1 = ros::Time::now();
+      SDL_RenderPresent(ren_);
+      ROS_INFO_STREAM((t1 - t0).toSec());
     }
 
     nh_.subscribe("image", 2, &ViewImage::imageCallback, this);
