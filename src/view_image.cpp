@@ -12,7 +12,7 @@ struct ViewImage {
       ros::shutdown();
     }
     // Disabling these two doesn't help performance
-    renderer_ = SDL_CreateRenderer(win_, -1, 0);  // SDL_RENDERER_ACCELERATED);  // | SDL_RENDERER_PRESENTVSYNC);
+    renderer_ = SDL_CreateRenderer(win_, -1, SDL_RENDERER_SOFTWARE);  // SDL_RENDERER_ACCELERATED);  // | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer_) {
       ROS_ERROR_STREAM(SDL_GetError());
       SDL_Quit();
@@ -29,7 +29,8 @@ struct ViewImage {
       }
     }
 
-#if 0
+#if 1
+    // TODO(lucasw) only with software rendering?
     surface_ = SDL_GetWindowSurface(win_);
     if (!surface_) {
       // TODO(lucasw) do I need a surface?
@@ -59,20 +60,10 @@ struct ViewImage {
     SDL_Quit();
   }
 
-  void textureFromImageMsg(const sensor_msgs::ImageConstPtr& msg, SDL_Texture* texture) {
-    Uint32 format;
-    int access;
-    int w;
-    int h;
-    SDL_QueryTexture(texture, &format, &access, &w, &h);
-    const size_t msg_width = msg->width;
-    const size_t msg_height = msg->height;
-    const size_t chan = (format == SDL_PIXELFORMAT_BGRA8888) ? 4 : 3;
-    ROS_INFO_STREAM(SDL_GetPixelFormatName(format) << " " << chan);
-
-#if 1
-    // TEMP test pattern
-    const size_t pitch = msg_width * chan;
+  std::vector<Uint8> makeTestPixels(const size_t msg_width, const size_t msg_height,
+      const size_t chan, size_t& pitch)
+  {
+    pitch = msg_width * chan;
     std::vector<Uint8> pixels;
     pixels.resize(pitch * msg_height);
     for (size_t i = 0; i < pixels.size() / chan; ++i) {
@@ -88,6 +79,78 @@ struct ViewImage {
       pixels[i * chan + offset + 1] = fr_x * fr_y * 255;  // (i % pitch) * fr;
       pixels[i * chan + offset + 2] = fr_y * 255;
     }
+    return pixels;
+  }
+
+  void setSurface(const sensor_msgs::ImageConstPtr& msg) {
+    const auto t0 = ros::Time::now();
+    if (surface_ == nullptr) {
+      ROS_WARN_STREAM("no surface to blit to");
+      return;
+    }
+    const size_t msg_width = msg->width;
+    const size_t msg_height = msg->height;
+    const size_t chan = 3;
+    size_t pitch = msg->step;
+    // auto pixels = makeTestPixels(msg_width, msg_height, chan, pitch);
+    SDL_Surface* surface = SDL_CreateRGBSurfaceFrom(
+        // pixels.data(),
+        (void*)msg->data.data(),
+        msg_width, msg_height, 24, pitch,
+        0xff0000,
+        0x00ff00,
+        0x0000ff,
+        0x000000);
+    if (surface == nullptr) {
+      ROS_WARN_STREAM("bad surface " << SDL_GetError());
+      return;
+    }
+    const int rv0 = SDL_BlitSurface(surface, nullptr, surface_, nullptr);
+    SDL_FreeSurface(surface);
+    if (rv0 != 0) {
+      ROS_WARN_STREAM("bad blit surface " << SDL_GetError());
+      return;
+    }
+    const auto t1 = ros::Time::now();
+    ROS_DEBUG_STREAM("surface " << (t1 - t0).toSec());
+    return;
+  }
+
+  void setTexture(const sensor_msgs::ImageConstPtr& msg) {
+    texture_ = SDL_CreateTexture(
+        renderer_,
+        // TODO(lucasw) need to match on the msg->encoding
+        // TODO(lucasw) This doesn't display correctly - the internal representation isn't
+        // what I assumed it would be, maybe using Surfaces will work better?
+        SDL_PIXELFORMAT_BGR888,
+        // SDL_PIXELFORMAT_BGRA8888,
+        // SDL_TEXTUREACCESS_STREAMING,
+        SDL_TEXTUREACCESS_STATIC,
+        msg->width,
+        msg->height);
+    if (texture_ == nullptr) {
+      ROS_ERROR_STREAM("sdl create texture failed: " << SDL_GetError());
+      return;
+    }
+    textureFromImageMsg(msg, texture_);
+    // TODO(lucasw) keep this around in case next message is same size and type?
+    SDL_DestroyTexture(texture_);
+  }
+
+  void textureFromImageMsg(const sensor_msgs::ImageConstPtr& msg, SDL_Texture* texture) {
+    Uint32 format;
+    int access;
+    int w;
+    int h;
+    SDL_QueryTexture(texture, &format, &access, &w, &h);
+    const size_t msg_width = msg->width;
+    const size_t msg_height = msg->height;
+    const size_t chan = (format == SDL_PIXELFORMAT_BGRA8888) ? 4 : 3;
+    ROS_INFO_STREAM(SDL_GetPixelFormatName(format) << " " << chan);
+
+#if 1
+    size_t pitch;
+    auto pixels = makeTestPixels(msg_width, msg_height, chan, pitch);
     const int rv0 = SDL_UpdateTexture(texture, nullptr, pixels.data(), pitch);
 #else
     const size_t pitch = msg->step;
@@ -130,7 +193,6 @@ struct ViewImage {
       ROS_ERROR_STREAM("sdl render copy failed: " << SDL_GetError());
       return;
     }
-    SDL_RenderPresent(renderer_);
   }
 
   void imageCallback(const sensor_msgs::ImageConstPtr& msg) {
@@ -151,24 +213,10 @@ struct ViewImage {
       // TODO(lucasw) later show partial image known to be safe
       return;
     }
-    texture_ = SDL_CreateTexture(
-        renderer_,
-        // TODO(lucasw) need to match on the msg->encoding
-        // TODO(lucasw) This doesn't display correctly - the internal representation isn't
-        // what I assumed it would be, maybe using Surfaces will work better?
-        SDL_PIXELFORMAT_BGR888,
-        // SDL_PIXELFORMAT_BGRA8888,
-        // SDL_TEXTUREACCESS_STREAMING,
-        SDL_TEXTUREACCESS_STATIC,
-        msg->width,
-        msg->height);
-    if (texture_ == nullptr) {
-      ROS_ERROR_STREAM("sdl create texture failed: " << SDL_GetError());
-      return;
-    }
-    textureFromImageMsg(msg, texture_);
-    // TODO(lucasw) keep this around in case next message is same size and type?
-    SDL_DestroyTexture(texture_);
+
+    setSurface(msg);
+    // setTexture(msg);
+    SDL_RenderPresent(renderer_);
 
     const auto t1 = ros::Time::now();
     // ROS_INFO_STREAM("image update " << (t1 - t0).toSec());
