@@ -18,33 +18,35 @@ struct ViewImage {
     surface_ = SDL_GetWindowSurface(win_);
 
     {
-      SDL_SetRenderDrawColor(ren_, 100, 50, 20, 255);
-      SDL_RenderClear(ren_);
-#if 0
+      const auto t0 = ros::Time::now();
       buffer_ = SDL_CreateTexture(
           ren_,
           SDL_PIXELFORMAT_BGRA8888,
-          SDL_TEXTUREACCESS_STREAMING,
+          // SDL_TEXTUREACCESS_STREAMING,
+          SDL_TEXTUREACCESS_STATIC,
           width,
           height);
-      // SDL_BlitSurface(buffer_, NULL, surface_, NULL);
 
+      // this is okay for speed, mabye
       std::array<int, width * height> pixels;
       for (size_t i = 0; i < pixels.size(); ++i ) {
-        pixels[i] = 0xff0ff0ff;
+        pixels[i] = 0x442288ff;
       }
       ROS_INFO_STREAM("int size: " << sizeof(int));
       int* pixels_ptr = pixels.data();
       int pitch = width * sizeof(int);
-      SDL_LockTexture(buffer_, NULL, reinterpret_cast<void**>(&pixels_ptr), &pitch);
-      SDL_UnlockTexture(buffer_);
-      SDL_RenderCopy(ren_, buffer_, NULL, NULL);
-#endif
+      // SDL_LockTexture(buffer_, NULL, reinterpret_cast<void**>(&pixels_ptr), &pitch);
+      // SDL_UnlockTexture(buffer_);
+      SDL_UpdateTexture(buffer_, NULL, pixels.data(), 4);
 
-      SDL_RenderPresent(ren_);
+      // SDL_SetRenderDrawColor(ren_, 100, 50, 20, 255);
+      // SDL_RenderClear(ren_);
+      SDL_RenderCopy(ren_, buffer_, NULL, NULL);
+
       // SDL_UpdateWindowSurface(win_);
 
-      // THis is super slow
+#if 0
+      // This is super slow
       const auto t0 = ros::Time::now();
       for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
@@ -52,6 +54,7 @@ struct ViewImage {
           SDL_RenderDrawPoint(ren_, x, y);
         }
       }
+#endif
       const auto t1 = ros::Time::now();
       SDL_RenderPresent(ren_);
       ROS_INFO_STREAM((t1 - t0).toSec());
