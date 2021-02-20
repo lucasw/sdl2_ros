@@ -1,9 +1,10 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.0.2)
 project(sdl2_ros)
 
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   roslint
+  sensor_msgs
   std_msgs
 )
 
@@ -12,9 +13,11 @@ roslint_cpp()
 catkin_package()
 
 find_package(SDL2 REQUIRED)
+
 # https://stackoverflow.com/questions/45730098/cmake-leading-or-trailing-whitespace-policy-cmp0004
 string(STRIP ${SDL2_LIBRARIES} SDL2_LIBRARIES)
-# No FindSDL2_mixer.cmake in Ubuntu 16.04?
+
+# No FindSDL2_mixer.cmake in Ubuntu 20.04
 # find_package(SDL2_mixer REQUIRED)
 # Use pkg-config instead
 find_package(PkgConfig)
@@ -28,10 +31,14 @@ include_directories(
 )
 
 add_executable(sdl2_mixer src/sdl2_mixer.cpp)
-
 target_link_libraries(sdl2_mixer
   ${SDL2_LIBRARIES}
   ${SDL2mixer_LIBRARIES}
-  # SDL2_mixer
+  ${catkin_LIBRARIES}
+)
+
+add_executable(view_image src/view_image.cpp)
+target_link_libraries(view_image
+  ${SDL2_LIBRARIES}
   ${catkin_LIBRARIES}
 )
