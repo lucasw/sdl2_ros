@@ -65,18 +65,16 @@ struct ViewImage {
     int w;
     int h;
     SDL_QueryTexture(texture, &format, &access, &w, &h);
+    const size_t msg_width = msg->width;
+    const size_t msg_height = msg->height;
     const size_t chan = (format == SDL_PIXELFORMAT_BGRA8888) ? 4 : 3;
     ROS_INFO_STREAM(SDL_GetPixelFormatName(format) << " " << chan);
 
-    const size_t msg_width = msg->width;
-    const size_t msg_height = msg->height;
-
-    // const size_t pitch = msg->step;
+#if 1
+    // TEMP test pattern
     const size_t pitch = msg_width * chan;
     std::vector<Uint8> pixels;
     pixels.resize(pitch * msg_height);
-    // TEMP test pattern
-    // for (size_t i = 0; i < pixels.size() - 3; i+=3) {
     for (size_t i = 0; i < pixels.size() / chan; ++i) {
       // slow but produces nice gradation
       const size_t x = i % msg_width;
@@ -90,16 +88,12 @@ struct ViewImage {
       pixels[i * chan + offset + 1] = fr_x * fr_y * 255;  // (i % pitch) * fr;
       pixels[i * chan + offset + 2] = fr_y * 255;
     }
-
-    SDL_Rect msg_rect;
-    msg_rect.x = 0;
-    msg_rect.y = 0;
-    msg_rect.w = msg_width;
-    msg_rect.h = msg_height;
-    // This seg faults unless 50 lines of padding are added to the texture
-    // SDL_UpdateTexture(texture_, &msg_rect, msg->data.data(), pitch);
-    // const int rv0 = SDL_UpdateTexture(texture, &msg_rect, pixels.data(), pitch);
     const int rv0 = SDL_UpdateTexture(texture, nullptr, pixels.data(), pitch);
+#else
+    const size_t pitch = msg->step;
+    // This seg faults unless 50 lines of padding are added to the texture
+    const int rv0 = SDL_UpdateTexture(texture, nullptr, msg->data.data(), pitch);
+#endif
     if (rv0 != 0) {
       ROS_ERROR_STREAM("sdl update texture failed: " << SDL_GetError());
       return;
@@ -162,7 +156,7 @@ struct ViewImage {
         // TODO(lucasw) need to match on the msg->encoding
         // TODO(lucasw) This doesn't display correctly - the internal representation isn't
         // what I assumed it would be, maybe using Surfaces will work better?
-        SDL_PIXELFORMAT_RGB888,
+        SDL_PIXELFORMAT_BGR888,
         // SDL_PIXELFORMAT_BGRA8888,
         // SDL_TEXTUREACCESS_STREAMING,
         SDL_TEXTUREACCESS_STATIC,
