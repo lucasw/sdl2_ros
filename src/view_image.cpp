@@ -12,8 +12,8 @@ struct ViewImage {
       ros::shutdown();
     }
     // Disabling these two doesn't help performance
-    ren_ = SDL_CreateRenderer(win_, -1, 0);  // SDL_RENDERER_ACCELERATED);  // | SDL_RENDERER_PRESENTVSYNC);
-    if (!ren_) {
+    renderer_ = SDL_CreateRenderer(win_, -1, 0);  // SDL_RENDERER_ACCELERATED);  // | SDL_RENDERER_PRESENTVSYNC);
+    if (!renderer_) {
       ROS_ERROR_STREAM(SDL_GetError());
       SDL_Quit();
       ros::shutdown();
@@ -21,7 +21,7 @@ struct ViewImage {
 
     {
       SDL_RendererInfo info;
-      SDL_GetRendererInfo(ren_, &info);
+      SDL_GetRendererInfo(renderer_, &info);
       ROS_INFO_STREAM("Renderer name: " << info.name);
       ROS_INFO_STREAM("Texture formats: ");
       for(Uint32 i = 0; i < info.num_texture_formats; i++) {
@@ -40,9 +40,9 @@ struct ViewImage {
     }
 #endif
 
-    SDL_SetRenderDrawColor(ren_, 100, 50, 20, 255);
-    SDL_RenderClear(ren_);
-    SDL_RenderPresent(ren_);
+    SDL_SetRenderDrawColor(renderer_, 30, 40, 35, 255);
+    SDL_RenderClear(renderer_);
+    SDL_RenderPresent(renderer_);
 
     image_sub_ = nh_.subscribe<sensor_msgs::Image>("image_in", 2, &ViewImage::imageCallback, this);
     // timer_ = nh_.createTimer(ros::Duration(0.1), &ViewImage::update, this);
@@ -59,43 +59,84 @@ struct ViewImage {
     SDL_Quit();
   }
 
-  void textureFromImageMsg(const sensor_msgs::ImageConstPtr& msg, SDL_Texture* buffer) {
+  void textureFromImageMsg(const sensor_msgs::ImageConstPtr& msg, SDL_Texture* texture) {
+    Uint32 format;
+    int access;
+    int w;
+    int h;
+    SDL_QueryTexture(texture, &format, &access, &w, &h);
+    const size_t chan = (format == SDL_PIXELFORMAT_BGRA8888) ? 4 : 3;
+    ROS_INFO_STREAM(SDL_GetPixelFormatName(format) << " " << chan);
+
+    const size_t msg_width = msg->width;
+    const size_t msg_height = msg->height;
+
+    // const size_t pitch = msg->step;
+    const size_t pitch = msg_width * chan;
     std::vector<Uint8> pixels;
-    pixels.resize(msg->step * msg->height);
-    for (size_t i = 0; i < pixels.size() - 3; i+=3) {
-    // for (size_t i = 0; i < pixels.size() - 4; i+=4) {
-      // test pattern
-      pixels[i] = (i % msg->step) % 255;
-      pixels[i + 1] = 0xff;
-      pixels[i + 2] = (i / msg->step) % 255;
-      // pixels[i + 3] = 0xff;
+    pixels.resize(pitch * msg_height);
+    // TEMP test pattern
+    // for (size_t i = 0; i < pixels.size() - 3; i+=3) {
+    for (size_t i = 0; i < pixels.size() / chan; ++i) {
+      // slow but produces nice gradation
+      const size_t x = i % msg_width;
+      const size_t y = i / msg_width;
+      const float fr_x = float(x) / float(msg_width);
+      const float fr_y = float(y) / float(msg_height);
+      pixels[i * chan + 0] = 0xff;  // alpha channel
+      // no alpha channel if chan == 3
+      const size_t offset = chan == 4 ? 1 : 0;
+      pixels[i * chan + offset + 0] = fr_x * 255;
+      pixels[i * chan + offset + 1] = fr_x * fr_y * 255;  // (i % pitch) * fr;
+      pixels[i * chan + offset + 2] = fr_y * 255;
     }
 
     SDL_Rect msg_rect;
     msg_rect.x = 0;
     msg_rect.y = 0;
-    msg_rect.w = msg->width;
-    msg_rect.h = msg->height;
+    msg_rect.w = msg_width;
+    msg_rect.h = msg_height;
     // This seg faults unless 50 lines of padding are added to the texture
-    // SDL_UpdateTexture(buffer_, &msg_rect, msg->data.data(), msg->step);
-    const int rv0 = SDL_UpdateTexture(buffer, &msg_rect, pixels.data(), msg->step);
+    // SDL_UpdateTexture(texture_, &msg_rect, msg->data.data(), pitch);
+    // const int rv0 = SDL_UpdateTexture(texture, &msg_rect, pixels.data(), pitch);
+    const int rv0 = SDL_UpdateTexture(texture, nullptr, pixels.data(), pitch);
     if (rv0 != 0) {
       ROS_ERROR_STREAM("sdl update texture failed: " << SDL_GetError());
       return;
     }
+
+    int wd;
+    int ht;
+    SDL_GetRendererOutputSize(renderer_, &wd, &ht);
+    if ((wd == 0) || (ht == 0)) {
+      ROS_WARN_STREAM("zero in output size " << wd << " " << ht);
+      return;
+    }
+    const float renderer_aspect = (float)wd / (float)ht;
+    const float msg_aspect = (float)msg_width / (float)msg_height;
     SDL_Rect dst_rect;
     dst_rect.x = 0;
     dst_rect.y = 0;
-    dst_rect.w = std::min(msg->width, width);
-    dst_rect.h = std::min(msg->height, height);
-    // ROS_INFO_STREAM("updated " << dst_rect.w << " " << dst_rect.h);
-    SDL_Rect src_rect = dst_rect;
-    const int rv1 = SDL_RenderCopy(ren_, buffer, &src_rect, &dst_rect);
+    dst_rect.w = wd;
+    dst_rect.h = ht;
+    if (msg_aspect == renderer_aspect) {
+    } else if (msg_aspect > renderer_aspect) {
+      dst_rect.h = wd / msg_aspect;
+      dst_rect.y = (ht - dst_rect.h) / 2;
+    } else if (msg_aspect < renderer_aspect) {
+      dst_rect.w = msg_aspect * ht;
+      dst_rect.x = (wd - dst_rect.w) / 2;
+    }
+    ROS_INFO_STREAM_THROTTLE(10.0, "update "
+        << "msg " << msg_width << " " << msg_height << " " << msg->step << " " << msg->data.size() << ", "
+        << " x " << dst_rect.x << " y " << dst_rect.y << ","
+        << " w " << dst_rect.w << " h " << dst_rect.h);
+    const int rv1 = SDL_RenderCopy(renderer_, texture, NULL, &dst_rect);
     if (rv1 != 0) {
       ROS_ERROR_STREAM("sdl render copy failed: " << SDL_GetError());
       return;
     }
-    SDL_RenderPresent(ren_);
+    SDL_RenderPresent(renderer_);
   }
 
   void imageCallback(const sensor_msgs::ImageConstPtr& msg) {
@@ -105,7 +146,7 @@ struct ViewImage {
     const auto t0 = ros::Time::now();
 
     if (msg->encoding != "bgr8") {
-      ROS_WARN_STREAM("can't handle non-bgr8 currently " << msg->encoding);
+      ROS_WARN_STREAM_THROTTLE(4.0, "can't handle non-bgr8 currently " << msg->encoding);
       return;
     }
 
@@ -116,23 +157,24 @@ struct ViewImage {
       // TODO(lucasw) later show partial image known to be safe
       return;
     }
-    buffer_ = SDL_CreateTexture(
-        ren_,
+    texture_ = SDL_CreateTexture(
+        renderer_,
         // TODO(lucasw) need to match on the msg->encoding
-        // This doesn't display correctly
-        SDL_PIXELFORMAT_BGR888,
+        // TODO(lucasw) This doesn't display correctly - the internal representation isn't
+        // what I assumed it would be, maybe using Surfaces will work better?
+        SDL_PIXELFORMAT_RGB888,
         // SDL_PIXELFORMAT_BGRA8888,
         // SDL_TEXTUREACCESS_STREAMING,
         SDL_TEXTUREACCESS_STATIC,
         msg->width,
         msg->height);
-    if (buffer_ == nullptr) {
+    if (texture_ == nullptr) {
       ROS_ERROR_STREAM("sdl create texture failed: " << SDL_GetError());
       return;
     }
-    textureFromImageMsg(msg, buffer_);
+    textureFromImageMsg(msg, texture_);
     // TODO(lucasw) keep this around in case next message is same size and type?
-    SDL_DestroyTexture(buffer_);
+    SDL_DestroyTexture(texture_);
 
     const auto t1 = ros::Time::now();
     // ROS_INFO_STREAM("image update " << (t1 - t0).toSec());
@@ -142,13 +184,13 @@ struct ViewImage {
     ROS_INFO_STREAM_THROTTLE(5.0, "update");
   }
 
-  const Uint32 width = 2000;
+  const Uint32 width = 2500;
   const Uint32 height = 1000;
 
   SDL_Window* win_ = nullptr;
-  SDL_Renderer* ren_ = nullptr;
+  SDL_Renderer* renderer_ = nullptr;
   SDL_Surface* surface_ = nullptr;
-  SDL_Texture* buffer_ = nullptr;
+  SDL_Texture* texture_ = nullptr;
 
   ros::NodeHandle nh_;
   ros::Subscriber image_sub_;
