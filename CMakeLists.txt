@@ -15,7 +15,7 @@ catkin_package()
 find_package(SDL2 REQUIRED)
 
 # https://stackoverflow.com/questions/45730098/cmake-leading-or-trailing-whitespace-policy-cmp0004
-string(STRIP ${SDL2_LIBRARIES} SDL2_LIBRARIES)
+# string(STRIP ${SDL2_LIBRARIES} SDL2_LIBRARIES)
 
 # No FindSDL2_mixer.cmake in Ubuntu 20.04
 # find_package(SDL2_mixer REQUIRED)
