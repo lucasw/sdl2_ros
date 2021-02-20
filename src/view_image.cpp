@@ -7,56 +7,42 @@ struct ViewImage {
     SDL_Init(SDL_INIT_EVERYTHING);
     win_ = SDL_CreateWindow("view_image", 50, 50, width, height, SDL_WINDOW_SHOWN);
     if (!win_) {
+      ROS_ERROR_STREAM(SDL_GetError());
       SDL_Quit();
+      ros::shutdown();
     }
     // Disabling these two doesn't help performance
     ren_ = SDL_CreateRenderer(win_, -1, 0);  // SDL_RENDERER_ACCELERATED);  // | SDL_RENDERER_PRESENTVSYNC);
     if (!ren_) {
+      ROS_ERROR_STREAM(SDL_GetError());
       SDL_Quit();
+      ros::shutdown();
     }
-    surface_ = SDL_GetWindowSurface(win_);
 
-    // SDL_SetRenderDrawColor(ren_, 100, 50, 20, 255);
-    // SDL_RenderClear(ren_);
     {
-      const auto t0 = ros::Time::now();
-      buffer_ = SDL_CreateTexture(
-          ren_,
-          SDL_PIXELFORMAT_BGRA8888,
-          // SDL_TEXTUREACCESS_STREAMING,
-          SDL_TEXTUREACCESS_STATIC,
-          width,
-          height);
-
-      // this is okay for speed, mabye
-      // std::array<int, width * height> pixels;
-      std::vector<int> pixels;
-      pixels.resize(width * height);
-      for (size_t i = 0; i < pixels.size(); ++i ) {
-        pixels[i] = 0x442288ff;
+      SDL_RendererInfo info;
+      SDL_GetRendererInfo(ren_, &info);
+      ROS_INFO_STREAM("Renderer name: " << info.name);
+      ROS_INFO_STREAM("Texture formats: ");
+      for(Uint32 i = 0; i < info.num_texture_formats; i++) {
+        ROS_INFO_STREAM(SDL_GetPixelFormatName(info.texture_formats[i]));
       }
-      ROS_INFO_STREAM("int size: " << sizeof(int));
-      int* pixels_ptr = pixels.data();
-      int pitch = width * sizeof(int);
-      // SDL_LockTexture(buffer_, NULL, reinterpret_cast<void**>(&pixels_ptr), &pitch);
-      // SDL_UnlockTexture(buffer_);
-      SDL_UpdateTexture(buffer_, NULL, pixels.data(), pitch);
-      SDL_RenderCopy(ren_, buffer_, NULL, NULL);
-
-/*
-      // This is super slow
-      const auto t0 = ros::Time::now();
-      for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-          SDL_SetRenderDrawColor(ren_, 255, x % 255, 0, 255);
-          SDL_RenderDrawPoint(ren_, x, y);
-        }
-      }
-*/
-      const auto t1 = ros::Time::now();
-      SDL_RenderPresent(ren_);
-      ROS_INFO_STREAM((t1 - t0).toSec());
     }
+
+#if 0
+    surface_ = SDL_GetWindowSurface(win_);
+    if (!surface_) {
+      // TODO(lucasw) do I need a surface?
+      // No hardware accelerated renderers available
+      ROS_ERROR_STREAM(SDL_GetError());
+      SDL_Quit();
+      ros::shutdown();
+    }
+#endif
+
+    SDL_SetRenderDrawColor(ren_, 100, 50, 20, 255);
+    SDL_RenderClear(ren_);
+    SDL_RenderPresent(ren_);
 
     image_sub_ = nh_.subscribe<sensor_msgs::Image>("image_in", 2, &ViewImage::imageCallback, this);
     // timer_ = nh_.createTimer(ros::Duration(0.1), &ViewImage::update, this);
@@ -73,61 +59,83 @@ struct ViewImage {
     SDL_Quit();
   }
 
-  void imageCallback(const sensor_msgs::ImageConstPtr& msg) {
-    msg_ = msg;
-
-    // this is still taking up too much cpu- maybe the vsync?
-    const auto t0 = ros::Time::now();
-    buffer_ = SDL_CreateTexture(
-        ren_,
-        SDL_PIXELFORMAT_BGRA8888,
-        // SDL_TEXTUREACCESS_STREAMING,
-        SDL_TEXTUREACCESS_STATIC,
-        msg->width,
-        msg->height);
-
-    // std::array<int, msg->width * msg->height> pixels;
-    std::vector<int> pixels;
-    pixels.resize(msg->width * msg->height);
-
-    for (size_t i = 0; i < pixels.size(); ++i ) {
-      size_t msg_ind = i * 3;
-      pixels[i] = (msg->data[msg_ind + 0] << 24 |
-                   msg->data[msg_ind + 1] << 16 |
-                   msg->data[msg_ind + 2] << 8 |
-                   0xff);
+  void textureFromImageMsg(const sensor_msgs::ImageConstPtr& msg, SDL_Texture* buffer) {
+    std::vector<Uint8> pixels;
+    pixels.resize(msg->step * msg->height);
+    for (size_t i = 0; i < pixels.size() - 3; i+=3) {
+    // for (size_t i = 0; i < pixels.size() - 4; i+=4) {
+      // test pattern
+      pixels[i] = (i % msg->step) % 255;
+      pixels[i + 1] = 0xff;
+      pixels[i + 2] = (i / msg->step) % 255;
+      // pixels[i + 3] = 0xff;
     }
-    int* pixels_ptr = pixels.data();
-    int pitch = msg->width * sizeof(int);
-    // SDL_LockTexture(buffer_, NULL, reinterpret_cast<void**>(&pixels_ptr), &pitch);
-    // SDL_UnlockTexture(buffer_);
-    SDL_UpdateTexture(buffer_, NULL, pixels.data(), pitch);
 
-    // SDL_SetRenderDrawColor(ren_, 100, 50, 20, 255);
-    // SDL_RenderClear(ren_);
+    SDL_Rect msg_rect;
+    msg_rect.x = 0;
+    msg_rect.y = 0;
+    msg_rect.w = msg->width;
+    msg_rect.h = msg->height;
+    // This seg faults unless 50 lines of padding are added to the texture
+    // SDL_UpdateTexture(buffer_, &msg_rect, msg->data.data(), msg->step);
+    const int rv0 = SDL_UpdateTexture(buffer, &msg_rect, pixels.data(), msg->step);
+    if (rv0 != 0) {
+      ROS_ERROR_STREAM("sdl update texture failed: " << SDL_GetError());
+      return;
+    }
     SDL_Rect dst_rect;
     dst_rect.x = 0;
     dst_rect.y = 0;
     dst_rect.w = std::min(msg->width, width);
     dst_rect.h = std::min(msg->height, height);
+    // ROS_INFO_STREAM("updated " << dst_rect.w << " " << dst_rect.h);
     SDL_Rect src_rect = dst_rect;
-    SDL_RenderCopy(ren_, buffer_, &src_rect, &dst_rect);
-
-    // SDL_UpdateWindowSurface(win_);
-/*
-    // This is super slow 10x slower than above
-    const auto t0 = ros::Time::now();
-    for (int y = 0; y < height; ++y) {
-      for (int x = 0; x < width; ++x) {
-        SDL_SetRenderDrawColor(ren_, 255, x % 255, 0, 255);
-        SDL_RenderDrawPoint(ren_, x, y);
-      }
+    const int rv1 = SDL_RenderCopy(ren_, buffer, &src_rect, &dst_rect);
+    if (rv1 != 0) {
+      ROS_ERROR_STREAM("sdl render copy failed: " << SDL_GetError());
+      return;
     }
-*/
-    const auto t1 = ros::Time::now();
     SDL_RenderPresent(ren_);
-    ROS_INFO_STREAM("image update " << (t1 - t0).toSec());
+  }
+
+  void imageCallback(const sensor_msgs::ImageConstPtr& msg) {
+    msg_ = msg;
+
+    // this is still taking up too much cpu- maybe the vsync?
+    const auto t0 = ros::Time::now();
+
+    if (msg->encoding != "bgr8") {
+      ROS_WARN_STREAM("can't handle non-bgr8 currently " << msg->encoding);
+      return;
+    }
+
+    // ROS_INFO_STREAM("msg " << msg->encoding << " " << msg->width << " " << msg->height
+    //                  << " " << msg->step << " " << msg->data.size());
+    if (msg->data.size() != msg->height * msg->step) {
+      ROS_WARN_STREAM("msg " << msg->width << " " << msg->height << " " << msg->step << " " << msg->data.size());
+      // TODO(lucasw) later show partial image known to be safe
+      return;
+    }
+    buffer_ = SDL_CreateTexture(
+        ren_,
+        // TODO(lucasw) need to match on the msg->encoding
+        // This doesn't display correctly
+        SDL_PIXELFORMAT_BGR888,
+        // SDL_PIXELFORMAT_BGRA8888,
+        // SDL_TEXTUREACCESS_STREAMING,
+        SDL_TEXTUREACCESS_STATIC,
+        msg->width,
+        msg->height);
+    if (buffer_ == nullptr) {
+      ROS_ERROR_STREAM("sdl create texture failed: " << SDL_GetError());
+      return;
+    }
+    textureFromImageMsg(msg, buffer_);
+    // TODO(lucasw) keep this around in case next message is same size and type?
     SDL_DestroyTexture(buffer_);
+
+    const auto t1 = ros::Time::now();
+    // ROS_INFO_STREAM("image update " << (t1 - t0).toSec());
   }
 
   void update(const ros::TimerEvent& event) {
