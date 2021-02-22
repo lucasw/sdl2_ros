@@ -11,7 +11,8 @@ struct ViewImage {
       SDL_Quit();
       ros::shutdown();
     }
-    // Disabling these two doesn't help performance
+
+    // need the software renderer to use surfaces
     renderer_ = SDL_CreateRenderer(win_, -1, SDL_RENDERER_SOFTWARE);  // SDL_RENDERER_ACCELERATED);  // | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer_) {
       ROS_ERROR_STREAM(SDL_GetError());

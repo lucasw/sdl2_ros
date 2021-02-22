@@ -1,0 +1,18 @@
+[package]
+name = "sdl2_ros"
+version = "0.1.0"
+authors = ["Lucas Walter <wsacul@gmail.com>"]
+edition = "2018"
+
+[[bin]]
+name = "view_image_rs"
+path = "src/view_image.rs"
+
+# Performance of pixels screen updating is poor without a higher opt-level
+[profile.dev]
+# opt-level = 3
+
+[dependencies]
+# rosrust = { git = "https://github.com/lucasw/rosrust", branch = "noetic_aggregated" }
+rosrust_msg = { git = "https://github.com/lucasw/rosrust", branch = "noetic_aggregated" }
+sdl2 = "0.34"
