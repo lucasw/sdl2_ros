@@ -21,17 +21,22 @@ pub fn main() {
         // temp test image
         let mut msg = Image::default();
         msg.width = 2000;
-        msg.step = msg.width * 4;  // * 3;
+        let chan: usize = 3;  // 4;
+        msg.step = msg.width * chan as u32;
         msg.height = 1000;
-        msg.encoding = "bgra8".to_string();  // "bgr8";
+        // msg.encoding = "bgra8".to_string();
+        msg.encoding = "bgr8".to_string();
         msg.data.resize((msg.height * msg.step) as usize, 128);
-        /*
-        for (count, pix) in msg.data.iter_mut().enumerate() {
-            *pix = 128;  // ((count / 256) % 256) as u8;
-        }
-        */
-        for i in 0..msg.data.len() {
-            msg.data[i] = (i / 4 % 256) as u8;
+        // generate test image
+        for i in (0..msg.data.len()).step_by(chan) {
+            let x = (i / chan) % msg.width as usize;
+            let y = i / msg.step as usize;
+            msg.data[i] = (x % 256) as u8;
+            msg.data[i + 1] = 40;  // ((x / 4 * y / 4) % 256) as u8;
+            msg.data[i + 2] = (255 * y / msg.height as usize) as u8;
+            if chan == 4 {
+                msg.data[i + 3] = 255;
+            }
         }
         let surface = Surface::from_data_pixelmasks(
             msg.data.as_mut_slice(),
@@ -39,7 +44,7 @@ pub fn main() {
             msg.height,
             msg.step,
             pixels::PixelMasks {
-                bpp: 32,
+                bpp: 24,  // 32,
                 rmask: 0x00ff0000,
                 gmask: 0x0000ff00,
                 bmask: 0x000000ff,
@@ -72,7 +77,7 @@ pub fn main() {
             let mut win_surface = window.surface(&event_pump).unwrap();
             win_surface.fill_rect(
                 sdl2::rect::Rect::new(100, 100, 200, 300),
-                sdl2::pixels::Color::GRAY,
+                sdl2::pixels::Color::BLUE,
             ).unwrap();
             win_surface.update_window().unwrap();
         }
