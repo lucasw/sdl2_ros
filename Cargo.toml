@@ -10,9 +10,10 @@ path = "src/view_image.rs"
 
 # Performance of pixels screen updating is poor without a higher opt-level
 [profile.dev]
-# opt-level = 3
+opt-level = 3
 
 [dependencies]
-# rosrust = { git = "https://github.com/lucasw/rosrust", branch = "noetic_aggregated" }
+crossbeam-channel = "0.5.0"
+rosrust = { git = "https://github.com/lucasw/rosrust", branch = "noetic_aggregated" }
 rosrust_msg = { git = "https://github.com/lucasw/rosrust", branch = "noetic_aggregated" }
 sdl2 = "0.34"
