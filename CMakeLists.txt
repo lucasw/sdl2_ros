@@ -8,6 +8,10 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
 )
 
+set(ROSLINT_CPP_OPTS
+  "--extensions=cpp,h,hpp" "--filter=-whitespace/braces,-runtime/references,-build/c++11"
+)
+
 roslint_cpp()
 
 catkin_package()

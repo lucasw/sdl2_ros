@@ -1,6 +1,10 @@
+/** Copyright 2021 Lucas Walter
+ */
 #include <SDL.h>
 #include <ros/ros.h>
 #include <sensor_msgs/Image.h>
+#include <string>
+#include <vector>
 
 struct ViewImage {
   ViewImage() {
@@ -13,7 +17,8 @@ struct ViewImage {
     }
 
     // need the software renderer to use surfaces
-    renderer_ = SDL_CreateRenderer(win_, -1, SDL_RENDERER_SOFTWARE);  // SDL_RENDERER_ACCELERATED);  // | SDL_RENDERER_PRESENTVSYNC);
+    renderer_ = SDL_CreateRenderer(win_, -1, SDL_RENDERER_SOFTWARE);
+    // SDL_RENDERER_ACCELERATED);  // | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer_) {
       ROS_ERROR_STREAM(SDL_GetError());
       SDL_Quit();
@@ -25,7 +30,7 @@ struct ViewImage {
       SDL_GetRendererInfo(renderer_, &info);
       ROS_INFO_STREAM("Renderer name: " << info.name);
       ROS_INFO_STREAM("Texture formats: ");
-      for(Uint32 i = 0; i < info.num_texture_formats; i++) {
+      for (Uint32 i = 0; i < info.num_texture_formats; i++) {
         ROS_INFO_STREAM(SDL_GetPixelFormatName(info.texture_formats[i]));
       }
     }
@@ -71,8 +76,8 @@ struct ViewImage {
       // slow but produces nice gradation
       const size_t x = i % msg_width;
       const size_t y = i / msg_width;
-      const float fr_x = float(x) / float(msg_width);
-      const float fr_y = float(y) / float(msg_height);
+      const float fr_x = static_cast<float>(x) / static_cast<float>(msg_width);
+      const float fr_y = static_cast<float>(y) / static_cast<float>(msg_height);
       pixels[i * chan + 0] = 0xff;  // alpha channel
       // no alpha channel if chan == 3
       const size_t offset = chan == 4 ? 1 : 0;
@@ -96,7 +101,7 @@ struct ViewImage {
     // auto pixels = makeTestPixels(msg_width, msg_height, chan, pitch);
     SDL_Surface* surface = SDL_CreateRGBSurfaceFrom(
         // pixels.data(),
-        (void*)msg->data.data(),
+        reinterpret_cast<void*>(msg->data.data()),
         msg_width, msg_height, 24, pitch,
         0xff0000,
         0x00ff00,
@@ -170,8 +175,8 @@ struct ViewImage {
       ROS_WARN_STREAM("zero in output size " << wd << " " << ht);
       return;
     }
-    const float renderer_aspect = (float)wd / (float)ht;
-    const float msg_aspect = (float)msg_width / (float)msg_height;
+    const float renderer_aspect = static_cast<float>(wd) / static_cast<float>(ht);
+    const float msg_aspect = static_cast<float>(msg_width) / static_cast<float>(msg_height);
     SDL_Rect dst_rect;
     dst_rect.x = 0;
     dst_rect.y = 0;

@@ -1,12 +1,15 @@
+/** Copyright 2018-2021 Lucas Walter
+ */
 #include <SDL.h>
 #include <SDL_mixer.h>
-#include <std_msgs/Int16MultiArray.h>
 #include <ros/ros.h>
+#include <std_msgs/Int16MultiArray.h>
+#include <string>
 
 // combined ros message and sdl mixer audio format
 struct AudioChunk
 {
-  AudioChunk(const std_msgs::Int16MultiArray::ConstPtr& audio) :
+  explicit AudioChunk(const std_msgs::Int16MultiArray::ConstPtr& audio) :
     audio(audio)
   {
     chunk.allocated = 0;
