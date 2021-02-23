@@ -101,7 +101,7 @@ struct ViewImage {
     // auto pixels = makeTestPixels(msg_width, msg_height, chan, pitch);
     SDL_Surface* surface = SDL_CreateRGBSurfaceFrom(
         // pixels.data(),
-        reinterpret_cast<void*>(msg->data.data()),
+        const_cast<void*>(reinterpret_cast<const void*>(msg->data.data())),
         msg_width, msg_height, 24, pitch,
         0xff0000,
         0x00ff00,
