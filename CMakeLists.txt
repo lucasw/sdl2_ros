@@ -48,7 +48,8 @@ target_link_libraries(view_image
 )
 
 # Rust parts
-find_package(Corrosion REQUIRED)
+find_package(Corrosion)
+if(Corrosion_FOUND)
 corrosion_import_crate(MANIFEST_PATH Cargo.toml)
 
 function(rust_target target_name)
@@ -63,3 +64,4 @@ function(rust_target target_name)
 endfunction(rust_target)
 
 rust_target(view_image_rs)
+endif(Corrosion_FOUND)
