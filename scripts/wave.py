@@ -3,8 +3,8 @@
 
 import math
 import random
-import rospy
 
+import rospy
 from std_msgs.msg import Int16MultiArray
 
 
@@ -47,7 +47,7 @@ for i in range(int(freq * duration)):
         wave_count += 1
         if sweep and wave_count % 18 == 0:
             wave_length = int(wave_length * 2.0 / 3.0)  # - 10  # *= 2.0 / 3.0
-            print wave_count, wave_length
+            print(f"{wave_count}, {wave_length}")
 
 while not rospy.is_shutdown():
     pub.publish(msg)
