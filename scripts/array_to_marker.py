@@ -3,11 +3,9 @@
 #
 # Generate triangle list Marker
 
-import math
 import rospy
-
 from geometry_msgs.msg import Point
-from std_msgs.msg import ColorRGBA, Int16MultiArray
+from std_msgs.msg import Int16MultiArray
 from visualization_msgs.msg import Marker
 
 
@@ -55,6 +53,7 @@ class ArrayToMarker():
         self.marker.header.stamp = rospy.Time.now()
         rospy.loginfo(len(self.marker.points))
         self.pub.publish(self.marker)
+
 
 if __name__ == '__main__':
     rospy.init_node('array_to_marker')

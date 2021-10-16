@@ -4,9 +4,13 @@ project(sdl2_ros)
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   roslint
+  rospy
   sensor_msgs
   std_msgs
 )
+
+set(ROSLINT_PYTHON_OPTS "--ignore=W503" "1>&2")
+roslint_python()
 
 set(ROSLINT_CPP_OPTS
   "--extensions=cpp,h,hpp" "--filter=-whitespace/braces,-runtime/references,-build/c++11"
@@ -14,7 +18,12 @@ set(ROSLINT_CPP_OPTS
 
 roslint_cpp()
 
-catkin_package()
+catkin_package(
+  CATKIN_DEPENDS
+  roscpp
+  sensor_msgs
+  std_msgs
+)
 
 find_package(SDL2 REQUIRED)
 
