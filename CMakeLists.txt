@@ -38,6 +38,7 @@ find_package(PkgConfig)
 pkg_check_modules(SDL2mixer REQUIRED SDL2_mixer)
 
 include_directories(
+  include
   ${SDL2_INCLUDE_DIRS}
   ${SDL2mixer_INCLUDE_DIRS}
   ${catkin_INCLUDE_DIRS}
@@ -50,27 +51,55 @@ target_link_libraries(sdl2_mixer
   ${catkin_LIBRARIES}
 )
 
-add_executable(view_image src/view_image.cpp)
+add_library(view_image src/view_image.cpp)
 target_link_libraries(view_image
   ${SDL2_LIBRARIES}
   ${catkin_LIBRARIES}
 )
 
+add_executable(blink_color src/blink_color.cpp)
+target_link_libraries(blink_color view_image ${catkin_LIBRARIES})
+
+# add_executable(image_sub src/image_sub.cpp)
+# target_link_libraries(image_sub ${catkin_LIBRARIES})
+
 # Rust parts
 find_package(Corrosion)
 if(Corrosion_FOUND)
-corrosion_import_crate(MANIFEST_PATH Cargo.toml)
+  corrosion_import_crate(MANIFEST_PATH Cargo.toml)
 
-function(rust_target target_name)
-  add_custom_target(${target_name}_copy_to_devel ALL
-    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${target_name}> ${CATKIN_DEVEL_PREFIX}/lib/${PROJECT_NAME}/${target_name}
-  )
-  add_dependencies(${target_name}_copy_to_devel ${target_name})
-  corrosion_install(
-    TARGETS ${target_name}
-    RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-  )
-endfunction(rust_target)
+  function(rust_target target_name)
+    add_custom_target(${target_name}_copy_to_devel ALL
+      COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${target_name}> ${CATKIN_DEVEL_PREFIX}/lib/${PROJECT_NAME}/${target_name}
+    )
+    add_dependencies(${target_name}_copy_to_devel ${target_name})
+    corrosion_install(
+      TARGETS ${target_name}
+      RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+    )
+  endfunction()
 
-rust_target(view_image_rs)
-endif(Corrosion_FOUND)
+  rust_target(view_image_rs)
+endif()
+
+install(TARGETS
+  view_image
+  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}
+)
+
+install(TARGETS
+  blink_color
+  sdl2_mixer
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+catkin_install_python(PROGRAMS
+  scripts/array_to_marker.py
+  scripts/wave.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+install(DIRECTORY data/ DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/data)
+install(DIRECTORY launch/ DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch)
