@@ -60,21 +60,21 @@ class SDL2Sprites(object):
 
         self.factory = sdl2.ext.SpriteFactory(sdl2.ext.SOFTWARE)
 
-        sprite1_path = rospy.get_param("~image1")
-        rospy.loginfo(sprite1_path)
+        images = rospy.get_param("~images")
+        rospy.loginfo(images)
 
         self.sprite_renderer = self.factory.create_sprite_render_system(self.window)
         # self.renderer = sdl2.ext.Renderer(window)
         # sdl2.ext.set_texture_scale_quality(method="nearest")
 
-        self.sdl2_sprites = []
-        for i in range(10):
-            sprite = self.factory.from_image(sprite1_path)
-            sprite_original = self.factory.from_image(sprite1_path)
-            # texture = sdl2.ext.Texture(renderer, ground_sprite)
-            sdl2_sprite = SDL2Sprite(sprite, sprite_original, 20 + i * 30, 20 + i * 4)
-            sdl2_sprite.rotozoom(angle=5.0 * i, zoom=0.5 + 0.1 * i)
-            self.sdl2_sprites.append(sdl2_sprite)
+        self.sdl2_sprites = {}
+        for key, image_path in images.items():
+            sprite = self.factory.from_image(image_path)
+            # TODO(lucasw) how to make copy of sprite?
+            sprite_original = self.factory.from_image(image_path)
+            sdl2_sprite = SDL2Sprite(sprite, sprite_original, 0, 0)
+            # sdl2_sprite.rotozoom(angle=5.0 * i, zoom=0.5 + 0.1 * i)
+            self.sdl2_sprites[key] = sdl2_sprite
 
         self.image_pub = rospy.Publisher("image", Image, queue_size=5)
 
@@ -105,7 +105,7 @@ class SDL2Sprites(object):
                 rospy.logwarn("sdl2 quit")
                 rospy.signal_shutdown("sdl2 quit")
 
-        for ind, sdl2_sprite in enumerate(self.sdl2_sprites):
+        for ind, (key, sdl2_sprite) in enumerate(self.sdl2_sprites.items()):
             dx = 0.5 + 0.15 * ind
             dy = 1.0 + 0.32 * ind
             if int(self.count / 100.0) % 2 != 0:
@@ -116,8 +116,8 @@ class SDL2Sprites(object):
         # blank image
         sdl2.ext.fill(self.sprite_renderer.surface, (0, 0, 0))
 
-        rospy.logdebug_throttle(1.0, f"update {len(self.sdl2_sprites)} sprites")
-        self.sprite_renderer.render([sdl2_sprite.sprite for sdl2_sprite in self.sdl2_sprites])
+        rospy.logdebug_throttle(1.0, f"update {len(self.sdl2_sprites.keys())} sprites")
+        self.sprite_renderer.render([sdl2_sprite.sprite for key, sdl2_sprite in self.sdl2_sprites.items()])
         rospy.logdebug_throttle(1.0, f"{ind} {sdl2_sprite}")
 
         if self.show_sdl_window:
