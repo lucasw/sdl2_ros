@@ -7,15 +7,17 @@ import numpy as np
 import rospy
 import sdl2
 import sdl2.ext
+import sdl2.sdlgfx
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 
 
 class SDL2Sprite(object):
-    def __init__(self, sprite, x=0.0, y=0.0):
+    def __init__(self, sprite, sprite_original, x=0.0, y=0.0):
         self.px = x
         self.py = y
         self.sprite = sprite
+        self.sprite_original = sprite_original
         self.update_position()
 
     def __repr__(self):
@@ -25,6 +27,15 @@ class SDL2Sprite(object):
         self.px += dx
         self.py += dy
         self.sprite.position = (int(self.px), int(self.py))
+
+    def rotozoom(self, angle=0.0, zoom=1.0):
+        rotozoom = sdl2.sdlgfx.rotozoomSurface
+        surface = rotozoom(self.sprite_original.surface,
+                           angle,
+                           zoom,
+                           1).contents
+        sdl2.SDL_FreeSurface(self.sprite.surface)
+        self.sprite.surface = surface
 
 
 class SDL2Sprites(object):
@@ -53,11 +64,17 @@ class SDL2Sprites(object):
         rospy.loginfo(sprite1_path)
 
         self.sprite_renderer = self.factory.create_sprite_render_system(self.window)
+        # self.renderer = sdl2.ext.Renderer(window)
+        # sdl2.ext.set_texture_scale_quality(method="nearest")
 
         self.sdl2_sprites = []
         for i in range(10):
-            ground_sprite = self.factory.from_image(sprite1_path)
-            self.sdl2_sprites.append(SDL2Sprite(ground_sprite, 20 + i * 60, 20 + i * 4))
+            sprite = self.factory.from_image(sprite1_path)
+            sprite_original = self.factory.from_image(sprite1_path)
+            # texture = sdl2.ext.Texture(renderer, ground_sprite)
+            sdl2_sprite = SDL2Sprite(sprite, sprite_original, 20 + i * 30, 20 + i * 4)
+            sdl2_sprite.rotozoom(angle=5.0 * i, zoom=0.5 + 0.1 * i)
+            self.sdl2_sprites.append(sdl2_sprite)
 
         self.image_pub = rospy.Publisher("image", Image, queue_size=5)
 
@@ -89,8 +106,8 @@ class SDL2Sprites(object):
                 rospy.signal_shutdown("sdl2 quit")
 
         for ind, sdl2_sprite in enumerate(self.sdl2_sprites):
-            dx = 2 + 0.5 * ind
-            dy = 5 + 1.0 * ind
+            dx = 0.5 + 0.15 * ind
+            dy = 1.0 + 0.32 * ind
             if int(self.count / 100.0) % 2 != 0:
                 dx *= -1.0
                 dy *= -1.0
@@ -129,7 +146,7 @@ class SDL2Sprites(object):
             self.image_pub.publish(image_msg)
             text = f"sdl2 to numpy array in {(t3 - t2).to_sec():0.3f}s + {(t2 - t0).to_sec():0.3f}s"
             text += f", {image_data.shape} {image_rgb.shape} {image_msg.width} x {image_msg.height}"
-            rospy.loginfo_throttle(4.0, text)
+            rospy.logdebug_throttle(4.0, text)
 
         self.count += 1
 
