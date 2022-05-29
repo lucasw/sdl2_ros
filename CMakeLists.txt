@@ -57,7 +57,8 @@ target_link_libraries(view_image
 )
 
 # Rust parts
-find_package(Corrosion)
+# Disable rust for now
+# find_package(Corrosion)
 if(Corrosion_FOUND)
 corrosion_import_crate(MANIFEST_PATH Cargo.toml)
 
