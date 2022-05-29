@@ -1,32 +1,40 @@
 <?xml version="1.0"?>
 <launch>
-  <node name="itf" pkg="rviz_interactive_tf" type="interactive_tf" ns="itf1">
-    <param name="parent_frame" value="map"/>
-    <param name="frame" value="tf1"/>
+  <node name="itf" pkg="rviz_interactive_tf" type="interactive_tf"
+    output="screen" ns="itf1">
+    <param name="parent_frame" value="map" />
+    <param name="frame" value="tf1" />
+    <param name="base_x" value="-0.2" />
+    <param name="base_z" value="1.0" />
   </node>
 
   <group ns="camera1">
-  <node pkg="tf" type="static_transform_publisher" name="camera_broadcaster"
-      args="0.1 0.1 -0.5 0 0 0 1 map camera1 10" />
-  <node name="camera_info" pkg="rostopic" type="rostopic"
-      args="pub camera_info sensor_msgs/CameraInfo
-     '{header: {seq: 0, stamp: {secs: 0, nsecs: 0}, frame_id: 'camera1'},
-      height: 480, width: 640, distortion_model: 'plumb_bob',
-      D: [0],
-      K: [500.0, 0.0, 320, 0.0, 500.0, 240.0, 0.0, 0.0, 1.0],
-      R: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
-      P: [500.0, 0.0, 320, 0.0, 0.0, 500, 240, 0.0, 0.0, 0.0, 1.0, 0.0],
-      binning_x: 0, binning_y: 0,
-      roi: {x_offset: 0, y_offset: 0, height: 480, width: 640, do_rectify: false}}' -r 10"
-      output="screen"/>
-  </group>
+    <node name="camera_tf" pkg="rviz_interactive_tf" type="interactive_tf"
+      output="screen">
+      <param name="parent_frame" value="map" />
+      <param name="frame" value="camera1" />
+      <param name="base_z" value="-2.0" />
+    </node>
+    <node name="dr_camera_info" pkg="vimjay" type="dr_camera_info.py"
+      output="screen" >
+      <remap from="camera_info" to="camera_info" />
+      <param name="frame_id" value="camera1" />
+      <param name="width" value="640" />
+      <param name="height" value="360" />
+      <param name="cx" value="320" />
+      <param name="cy" value="180" />
+      <param name="fx" value="220" />
+      <param name="fy" value="220" />
+    </node>
 
-  <node name="sdl2_sprites" pkg="sdl2_ros" type="sdl2_sprites.py"
-    output="screen" >
-    <rosparam param="images" subst_value="true">
-      map: "$(find vimjay)/data/diffract1.png"
-      tf1: "$(find vimjay)/data/gradient_spiral.png"
-    </rosparam>
-  </node>
+    <node name="sdl2_sprites" pkg="sdl2_ros" type="sdl2_sprites.py"
+      output="screen">
+      <rosparam param="images" subst_value="true">
+        map: "$(find vimjay)/data/diffract1.png"
+        tf1: "$(find vimjay)/data/gradient_spiral.png"
+      </rosparam>
+    </node>
+
+  </group>
 
 </launch>

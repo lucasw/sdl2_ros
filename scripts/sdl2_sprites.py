@@ -3,29 +3,36 @@
 # show an sdl window
 # rosrun sdl2_ros sdl2_sprites.py _image1:=`rospack find vimjay`/data/plasma.png
 
+import queue
+from threading import Lock
+
+import cv2
 import numpy as np
 import rospy
 import sdl2
 import sdl2.ext
 import sdl2.sdlgfx
+import tf2_ros
 from cv_bridge import CvBridge
+from sensor_msgs.msg import CameraInfo
 from sensor_msgs.msg import Image
+from tf import transformations
 
 
 class SDL2Sprite(object):
     def __init__(self, sprite, sprite_original, x=0.0, y=0.0):
-        self.px = x
-        self.py = y
         self.sprite = sprite
         self.sprite_original = sprite_original
-        self.update_position()
+        self.update_position(x, y)
+        self.is_active = True
+        self.width_meters = 0.2
 
     def __repr__(self):
         return f"x {self.px:0.2f} y {self.py:0.2f}, {self.sprite.position}"
 
-    def update_position(self, dx=0.0, dy=0.0):
-        self.px += dx
-        self.py += dy
+    def update_position(self, x=0.0, y=0.0):
+        self.px = x
+        self.py = y
         self.sprite.position = (int(self.px), int(self.py))
 
     def rotozoom(self, angle=0.0, zoom=1.0):
@@ -40,6 +47,13 @@ class SDL2Sprite(object):
 
 class SDL2Sprites(object):
     def __init__(self):
+        self.lock = Lock()
+
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+        # fill tf buffer
+        rospy.sleep(1.0)
+
         self.cv_bridge = CvBridge()
         rospy.loginfo(f"SDL2 Version {sdl2.__version__}")
         # TODO(lucasw) could get these from a camera_info
@@ -80,7 +94,12 @@ class SDL2Sprites(object):
 
         self.count = 0
 
-        update_rate = rospy.get_param("~update_rate", 30)
+        self.camera_infos = queue.Queue()
+
+        self.camera_info_sub = rospy.Subscriber("camera_info", CameraInfo,
+                                                self.camera_info_callback, queue_size=5)
+
+        update_rate = rospy.get_param("~update_rate", 100)
         # dt = rospy.Duration(1.0 / update_rate)
         rospy.loginfo(f"{update_rate}")
         # TODO(lucasw) this doesn't work because of threading issues,
@@ -94,30 +113,87 @@ class SDL2Sprites(object):
             event.current_real = t0
             event.last_real = old_t0
             # rospy.loginfo(f"{(t0 - old_t0).to_sec():0.3f}")
-            self.update(event=None)
+            if True:  # try:
+                self.update(event=None, camera_info=self.camera_infos.get(timeout=1.0))
+            # except Exception as ex:
+            #     rospy.logwarn_throttle(5.0, ex)
+            #     continue
             rate.sleep()
             old_t0 = t0
 
-    def update(self, event):
+    def camera_info_callback(self, msg):
+        # TODO(lucasw) drain queue down if it gets too big
+        self.camera_infos.put(msg)
+
+    def update(self, event, camera_info):
         events = sdl2.ext.get_events()
         for event in events:
             if event.type == sdl2.SDL_QUIT:
                 rospy.logwarn("sdl2 quit")
                 rospy.signal_shutdown("sdl2 quit")
 
+        # get transforms of sprites relative to camera
+        rvec = np.zeros((1, 3))
+        tvec = np.zeros((1, 3))
+        camera_matrix = np.zeros((3, 3))
+        for y_ind in range(3):
+            for x_ind in range(3):
+                ind = y_ind * 3 + x_ind
+                camera_matrix[y_ind, x_ind] = camera_info.K[ind]
+        fx = camera_info.K[0]
+        # cx = camera_info.K[1]
+        # cy = camera_info.K[5]
+        dist_coeff = np.asarray(camera_info.D)
+
+        camera_frame = camera_info.header.frame_id
+        stamp = camera_info.header.stamp
+
+        # num = len(self.sdl2_sprites.keys())
         for ind, (key, sdl2_sprite) in enumerate(self.sdl2_sprites.items()):
-            dx = 0.5 + 0.15 * ind
-            dy = 1.0 + 0.32 * ind
-            if int(self.count / 100.0) % 2 != 0:
-                dx *= -1.0
-                dy *= -1.0
-            sdl2_sprite.update_position(dx, dy)
+            tfs = self.tf_buffer.lookup_transform(camera_frame, key, stamp, timeout=rospy.Duration(0.2))
+            point = tfs.transform.translation
+
+            point_in_camera_frame = np.zeros((1, 3))
+            point_in_camera_frame[0, 0] = point.x
+            point_in_camera_frame[0, 1] = point.y
+            point_in_camera_frame[0, 2] = point.z
+
+            # don't want points behind the camera
+            min_z = 0.01
+            if point.z < min_z:
+                sdl2_sprite.is_active = False
+                continue
+            sdl2_sprite.is_active = True
+
+            sprite_width = sdl2_sprite.sprite_original.size[0]
+            sprite_height = sdl2_sprite.sprite_original.size[1]
+
+            point2d, _ = cv2.projectPoints(point_in_camera_frame, rvec, tvec, camera_matrix, dist_coeff)
+            # rospy.loginfo(f"{camera_frame} to {key}: {point.x:0.2f} {point.y:0.2f} {point.z:0.2f}, {point2d[0]}")
+
+            sdl2_sprite.update_position(point2d[0, 0, 0] - sprite_width * 0.5,
+                                        point2d[0, 0, 1] - sprite_height * 0.5)
+            # TODO(lucasw) do something with rotation from tfs.transform.rotation yaw
+            rotation = tfs.transform.rotation
+            rotation_array = [rotation.x, rotation.y, rotation.z, rotation.w]
+            euler = transformations.euler_from_quaternion(rotation_array)
+            yaw = -euler[2]
+
+            # pixels * (meters / pixels) / meters -> unitless scale
+            zoom = fx * (sdl2_sprite.width_meters / sprite_width) / point.z
+            # rospy.loginfo(f"zoom {zoom:0.3f}, yaw {yaw:0.2f}")
+            sdl2_sprite.rotozoom(zoom=zoom, angle=np.degrees(yaw))
 
         # blank image
         sdl2.ext.fill(self.sprite_renderer.surface, (0, 0, 0))
 
         rospy.logdebug_throttle(1.0, f"update {len(self.sdl2_sprites.keys())} sprites")
-        self.sprite_renderer.render([sdl2_sprite.sprite for key, sdl2_sprite in self.sdl2_sprites.items()])
+        sprites_to_render = []
+        for key, sdl2_sprite in self.sdl2_sprites.items():
+            if not sdl2_sprite.is_active:
+                continue
+            sprites_to_render.append(sdl2_sprite.sprite)
+        self.sprite_renderer.render(sprites_to_render)
         rospy.logdebug_throttle(1.0, f"{ind} {sdl2_sprite}")
 
         if self.show_sdl_window:
