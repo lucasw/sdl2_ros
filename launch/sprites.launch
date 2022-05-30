@@ -1,0 +1,61 @@
+<?xml version="1.0"?>
+<launch>
+
+  <arg name="use_gui" default="false" doc="launch rviz and rqt" />
+
+  <node name="ddr_tf" pkg="rviz_interactive_tf" type="ddr_tf.py"
+    output="screen">
+    <param name="frame_id" value="map" />
+    <param name="child_frame_id" value="tf1" />
+    <param name="base_x" value="0.25" />
+    <param name="base_y" value="0.0" />
+    <param name="base_z" value="0.05" />
+    <param name="roll" value="0.0" />
+    <param name="pitch" value="0.0" />
+    <param name="yaw" value="0.0" />
+  </node>
+
+  <group ns="camera1">
+    <node name="map_camera_offset_broadcaster" pkg="tf" type="static_transform_publisher"
+      args="-2.0 0 1.0 -1.5707 0 -1.5707 map camera_offset 20" />
+    <node name="camera_tf" pkg="rviz_interactive_tf" type="interactive_tf"
+      output="screen">
+      <param name="parent_frame" value="camera_offset" />
+      <param name="frame" value="camera1" />
+    </node>
+    <node name="dr_camera_info" pkg="vimjay" type="dr_camera_info.py"
+      output="screen" >
+      <remap from="camera_info" to="camera_info" />
+      <param name="frame_id" value="camera1" />
+      <param name="width" value="640" />
+      <param name="height" value="360" />
+      <param name="cx" value="320" />
+      <param name="cy" value="180" />
+      <param name="fx" value="220" />
+      <param name="fy" value="220" />
+    </node>
+
+    <node name="generate_sprite_marker" pkg="sdl2_ros" type="generate_sprite_marker.py"
+      output="screen">
+    </node>
+
+    <node name="sdl2_sprites" pkg="sdl2_ros" type="sprites.py"
+      output="screen">
+      <rosparam param="images" subst_value="true">
+        map: "$(find vimjay)/data/diffract1.png"
+        tf1: "$(find vimjay)/data/gradient_spiral.png"
+      </rosparam>
+    </node>
+
+  </group>
+
+  <group if="$(arg use_gui)">
+    <node name="$(anon system_rviz)" pkg="rviz" type="rviz"
+      args="-d $(find sdl2_ros)/config/sprites.rviz" />
+
+    <node name="$(anon tc_autopick_rqt)" pkg="rqt_gui" type="rqt_gui"
+      output="screen"
+      args="--perspective-file $(find sdl2_ros)/config/sprites.perspective" />
+  </group>
+
+</launch>
