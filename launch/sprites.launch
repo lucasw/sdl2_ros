@@ -37,13 +37,17 @@
 
     <node name="generate_sprite_marker" pkg="sdl2_ros" type="generate_sprite_marker.py"
       output="screen">
+      <param name="frame0" value="map" />
+      <param name="image0" value="ground" />
+      <param name="frame1" value="map" />
+      <param name="image1" value="object" />
     </node>
 
     <node name="sdl2_sprites" pkg="sdl2_ros" type="sprites.py"
       output="screen">
       <rosparam param="images" subst_value="true">
-        map: "$(find vimjay)/data/diffract1.png"
-        tf1: "$(find vimjay)/data/gradient_spiral.png"
+        ground: "$(find vimjay)/data/diffract1.png"
+        object: "$(find vimjay)/data/gradient_spiral.png"
       </rosparam>
     </node>
 
