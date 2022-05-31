@@ -84,9 +84,10 @@ class SDL2Sprites(object):
 
         self.cv_bridge = CvBridge()
         rospy.loginfo(f"SDL2 Version {sdl2.__version__}")
-        # TODO(lucasw) could get these from a camera_info
-        image_width = rospy.get_param("~width", 640)
-        image_height = rospy.get_param("~height", 360)
+
+        self.init_camera_info = rospy.wait_for_message("camera_info", CameraInfo, timeout=5.0)
+        image_width = self.init_camera_info.width
+        image_height = self.init_camera_info.height
 
         # can either be 3 or 4, 4 will be faster here but downstream nodes may not like
         # the alpha channel at all or will work slower
@@ -165,6 +166,10 @@ class SDL2Sprites(object):
                     self.camera_infos.get()
 
     def camera_info_callback(self, msg):
+        if msg.width != self.init_camera_info.width or msg.height != self.init_camera_info.height:
+            text = f"{msg.width} {msg.height} != {self.init_camera_info.width} {self.init_camera_info.height}"
+            rospy.logwarn_throttle(2.0, text)
+            return
         # TODO(lucasw) drain queue down if it gets too big
         self.camera_infos.put(msg)
 
