@@ -217,8 +217,12 @@ class SDL2Sprites(object):
             sprites = self.sdl2_sprites[marker.mesh_resource]
 
             # TODO(lucasw) ignore marker.pose for now, but incorporate it later
-            tfs = self.tf_buffer.lookup_transform(camera_frame, marker.header.frame_id,
-                                                  stamp, timeout=rospy.Duration(0.2))
+            try:
+                tfs = self.tf_buffer.lookup_transform(camera_frame, marker.header.frame_id,
+                                                      stamp, timeout=rospy.Duration(0.2))
+            except tf2.LookupException as ex:
+                rospy.logwarn_throttle(4.0, ex)
+                return
 
             pc2_in = marker_to_point_cloud2(marker)
             pc2_in.header.stamp = stamp
@@ -299,8 +303,7 @@ class SDL2Sprites(object):
                 raise Exception(text)
             # image_msg = self.cv_bridge.cv2_to_imgmsg(image_data, "bgr8")
             t3 = rospy.Time.now()
-            image_msg.header.stamp = t0
-            image_msg.header.frame_id = "map"
+            image_msg.header = camera_info.header
             self.image_pub.publish(image_msg)
             text = f"sdl2 to numpy array in {(t3 - t2).to_sec():0.3f}s + {(t2 - t0).to_sec():0.3f}s"
             text += f", {image_data.shape} {image_rgb.shape} {image_msg.width} x {image_msg.height}"
