@@ -54,7 +54,6 @@ class SDL2Sprite(object):
         self.sprite_original = sprite_original
         self.update_position(x, y)
         self.is_active = True
-        self.width_meters = 0.2
 
     def __repr__(self):
         return f"x {self.px:0.2f} y {self.py:0.2f}, {self.sprite.position}"
@@ -162,7 +161,7 @@ class SDL2Sprites(object):
             max_size = 16
             if queue_size > max_size:
                 rospy.logwarn_throttle(2.0, f"draining queue {queue_size}")
-                while self.camera_info.qsize() > (max_size // 4):
+                while self.camera_infos.qsize() > (max_size // 4):
                     self.camera_infos.get()
 
     def camera_info_callback(self, msg):
@@ -220,7 +219,7 @@ class SDL2Sprites(object):
             try:
                 tfs = self.tf_buffer.lookup_transform(camera_frame, marker.header.frame_id,
                                                       stamp, timeout=rospy.Duration(0.2))
-            except tf2.LookupException as ex:
+            except tf2_ros.LookupException as ex:
                 rospy.logwarn_throttle(4.0, ex)
                 return
 
@@ -252,10 +251,6 @@ class SDL2Sprites(object):
             # - make it so they can all use sprites from the same pool (up to the max_sprites limit)
             for point_ind, (point3d, sprite) in enumerate(zip(points3d, sprites)):
                 sprite.is_active = True
-                sprite_width = sprite.sprite_original.size[0]
-                sprite_height = sprite.sprite_original.size[1]
-                sprite.update_position(points2d[point_ind, 0, 0] - sprite_width * 0.5,
-                                       points2d[point_ind, 0, 1] - sprite_height * 0.5)
                 rotation = tfs.transform.rotation
                 rotation_array = [rotation.x, rotation.y, rotation.z, rotation.w]
 
@@ -265,10 +260,19 @@ class SDL2Sprites(object):
                 angle = -euler[2]
                 # rospy.loginfo_throttle(1.0, f"euler {euler[0]:0.2f} {euler[1]:0.2f} {euler[2]:0.2f}")
 
+                sprite_width = sprite.sprite_original.size[0]
+                # TODO(lucasw) the right scale differs acrros the image depending on the
+                # instrinsics, otherwise there will be gaps- need to adjust for that
+                sprite_width_meters = marker.scale.x
                 # pixels * (meters / pixels) / meters -> unitless scale
-                zoom = fx * (sprite.width_meters / sprite_width) / point3d[2]
+                zoom = fx * (sprite_width_meters / sprite_width) / point3d[2]
                 # rospy.loginfo(f"zoom {zoom:0.3f}, angle {angle:0.2f}")
                 sprite.rotozoom(zoom=zoom, angle=np.degrees(angle))
+
+                rotated_width = sprite.sprite.size[0]
+                rotated_height = sprite.sprite.size[1]
+                sprite.update_position(points2d[point_ind, 0, 0] - rotated_width * 0.5,
+                                       points2d[point_ind, 0, 1] - rotated_height * 0.5)
 
         # blank image
         sdl2.ext.fill(self.sprite_renderer.surface, (0, 0, 0))
