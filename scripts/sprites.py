@@ -256,6 +256,9 @@ class SDL2Sprites(object):
             # - make it so they can all use sprites from the same pool (up to the max_sprites limit)
             for point_ind, (point3d, sprite) in enumerate(zip(points3d, sprites)):
                 sprite.is_active = True
+                use_rotozoom = True
+                if not use_rotozoom:
+                    continue
                 rotation = tfs.transform.rotation
                 rotation_array = [rotation.x, rotation.y, rotation.z, rotation.w]
 
