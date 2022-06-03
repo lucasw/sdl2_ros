@@ -159,10 +159,10 @@ class SDL2Sprites(object):
             old_t0 = t0
 
             queue_size = self.camera_infos.qsize()
-            max_size = 16
+            max_size = 3
             if queue_size > max_size:
-                rospy.logwarn_throttle(2.0, f"draining queue {queue_size}")
-                while self.camera_infos.qsize() > (max_size // 4):
+                # rospy.logwarn_throttle(2.0, f"draining queue {queue_size}")
+                while self.camera_infos.qsize() > 1:
                     self.camera_infos.get()
 
     def camera_info_callback(self, msg):
