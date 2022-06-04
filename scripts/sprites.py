@@ -85,7 +85,14 @@ class SDL2Sprites(object):
         self.cv_bridge = CvBridge()
         rospy.loginfo(f"SDL2 Version {sdl2.__version__}")
 
-        self.init_camera_info = rospy.wait_for_message("camera_info", CameraInfo, timeout=5.0)
+        while not rospy.is_shutdown():
+            try:
+                self.init_camera_info = rospy.wait_for_message("camera_info", CameraInfo, timeout=5.0)
+                break
+            except Exception as ex:
+                rospy.logdebug(ex)
+                rospy.logwarn("waiting for camera_info...")
+                rospy.sleep(2.0)
         image_width = self.init_camera_info.width
         image_height = self.init_camera_info.height
 
