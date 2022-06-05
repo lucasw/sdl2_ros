@@ -75,3 +75,8 @@ endfunction(rust_target)
 
 rust_target(view_image_rs)
 endif(Corrosion_FOUND)
+
+catkin_install_python(PROGRAMS
+  scripts/sprites.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
