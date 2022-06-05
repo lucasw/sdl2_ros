@@ -157,15 +157,17 @@ class SDL2Sprites(object):
             event.current_real = t0
             event.last_real = old_t0
             # rospy.loginfo(f"{(t0 - old_t0).to_sec():0.3f}")
-            if True:  # try:
-                self.update(event=None, camera_info=self.camera_infos.get(timeout=1.0))
-            # except Exception as ex:
-            #     rospy.logwarn_throttle(5.0, ex)
-            #     continue
+            try:
+                camera_info = self.camera_infos.get(timeout=1.0)
+                self.update(event=None, camera_info=camera_info)
+            except Exception as ex:
+                rospy.logwarn_throttle(5.0, ex)
+                continue
             rate.sleep()
             old_t0 = t0
 
             queue_size = self.camera_infos.qsize()
+            # drain queue down if it gets too big
             max_size = 3
             if queue_size > max_size:
                 # rospy.logwarn_throttle(2.0, f"draining queue {queue_size}")
@@ -177,7 +179,6 @@ class SDL2Sprites(object):
             text = f"{msg.width} {msg.height} != {self.init_camera_info.width} {self.init_camera_info.height}"
             rospy.logwarn_throttle(2.0, text)
             return
-        # TODO(lucasw) drain queue down if it gets too big
         self.camera_infos.put(msg)
 
     def marker_callback(self, msg):
