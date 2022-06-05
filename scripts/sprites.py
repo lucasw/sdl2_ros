@@ -1,11 +1,14 @@
 #!/usr/bin/env python
-# display sprites in an image with ros integration- publish the image out, only optionally
-# show an sdl window
+# Copyright 2022 Lucas Walter
+# display sprites in an image derived from ROS MarkerArray
+# publish the image out, optionally show an sdl window
+#
 # rosrun sdl2_ros sdl2_sprites.py _image1:=`rospack find vimjay`/data/plasma.png
 
 import queue
 from threading import Lock
 from typing import List
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -16,6 +19,7 @@ import sdl2.sdlgfx
 import tf2_ros
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Point
+from marti_common_msgs.msg import DurationStamped
 from sensor_msgs.msg import CameraInfo
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import PointCloud2
@@ -71,6 +75,151 @@ class SDL2Sprite(object):
                            1).contents
         sdl2.SDL_FreeSurface(self.sprite.surface)
         self.sprite.surface = surface
+
+
+def camera_info_to_cv2(camera_info: CameraInfo) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    rvec = np.zeros((1, 3))
+    tvec = np.zeros((1, 3))
+    camera_matrix = np.zeros((3, 3))
+    for y_ind in range(3):
+        for x_ind in range(3):
+            ind = y_ind * 3 + x_ind
+            camera_matrix[y_ind, x_ind] = camera_info.K[ind]
+    # cx = camera_info.K[1]
+    # cy = camera_info.K[5]
+    dist_coeff = np.asarray(camera_info.D)
+    return camera_matrix, dist_coeff, rvec, tvec
+
+
+def render_markers(tf_buffer: tf2_ros.Buffer,
+                   marker_array: MarkerArray,
+                   camera_info: CameraInfo,
+                   sdl2_sprites: dict[SDL2Sprite],
+                   sprite_renderer: sdl2.ext.SpriteRenderSystem,
+                   cv_bridge: Optional[CvBridge] = None,
+                   num_chan=3,
+                   min_z=0.01):
+    camera_matrix, dist_coeff, rvec, tvec = camera_info_to_cv2(camera_info)
+    fx = camera_info.K[0]
+    camera_frame = camera_info.header.frame_id
+    stamp = camera_info.header.stamp
+
+    # TODO(lucasw) is_active doesn't really belong in the object, it is only used
+    # within this function
+    for key, sprites in sdl2_sprites.items():
+        for sprite in sprites:
+            sprite.is_active = False
+
+    # TODO(lucasw) use marker id as layer to define the render order, within same id
+    # layers use z distance to sort (currently marker order is used for layering)
+    for marker in marker_array.markers:
+        # (mis)using mesh_resource as a key to what sprite image to use
+        # TODO(lucasw) the mesh_resource could be a path to the image instead
+        if marker.mesh_resource not in sdl2_sprites.keys():
+            rospy.logwarn_throttle(4.0, f"{marker.mesh_resource} not in {sdl2_sprites.keys()}")
+            # TODO(lucasw) load it right now and use it, don't have the config yaml param
+            continue
+        sprites = sdl2_sprites[marker.mesh_resource]
+
+        # TODO(lucasw) ignore marker.pose for now, but incorporate it later
+        try:
+            tfs = tf_buffer.lookup_transform(camera_frame, marker.header.frame_id,
+                                             stamp, timeout=rospy.Duration(0.2))
+        except tf2_ros.LookupException as ex:
+            rospy.logwarn_throttle(4.0, ex)
+            return
+
+        pc2_in = marker_to_point_cloud2(marker)
+        pc2_in.header.stamp = stamp
+        # TODO(lucasw) probably a more efficient transform on a Point array than converting to PointCloud2
+        pc2_out = do_transform_cloud(pc2_in, tfs)
+        pc2_points = point_cloud2.read_points(pc2_out, field_names=("x", "y", "z"), skip_nans=True)
+
+        # don't want points behind the camera
+        points3d = [pt for pt in pc2_points if pt[2] > min_z]
+        # sort pc2_points by z, largest first, so can do painters algorithm
+        points3d.sort(key=lambda pt: pt[2], reverse=True)
+        num_points = len(points3d)
+        if num_points == 0:
+            continue
+        points_in_camera_frame = np.zeros((num_points, 3))
+        for pt_ind, pt in enumerate(points3d):
+            points_in_camera_frame[pt_ind, 0] = pt[0]
+            points_in_camera_frame[pt_ind, 1] = pt[1]
+            points_in_camera_frame[pt_ind, 2] = pt[2]
+
+        points2d, _ = cv2.projectPoints(points_in_camera_frame, rvec, tvec, camera_matrix, dist_coeff)
+        # rospy.loginfo(f"{camera_frame} to {key}:
+        #               {point.x:0.2f} {point.y:0.2f}
+        #               {point.z:0.2f}, {point2d[0]}")
+
+        # TODO(lucasw) if multiple markers use the same 'mesh_resource' only the last one will work
+        # - make it so they can all use sprites from the same pool (up to the max_sprites limit)
+        for point_ind, (point3d, sprite) in enumerate(zip(points3d, sprites)):
+            sprite.is_active = True
+            use_rotozoom = True
+            if not use_rotozoom:
+                continue
+            rotation = tfs.transform.rotation
+            rotation_array = [rotation.x, rotation.y, rotation.z, rotation.w]
+
+            # want the z axis first, that's the angle around the axis pointing into the optical frame
+            # TODO(lucasw) not 100% that zxz is correct, but tried a lot of relative camera angles
+            euler = transformations.euler_from_quaternion(rotation_array, 'szxz')
+            angle = -euler[2]
+            # rospy.loginfo_throttle(1.0, f"euler {euler[0]:0.2f} {euler[1]:0.2f} {euler[2]:0.2f}")
+
+            sprite_width = sprite.sprite_original.size[0]
+            # TODO(lucasw) the right scale differs acrros the image depending on the
+            # instrinsics, otherwise there will be gaps- need to adjust for that
+            sprite_width_meters = marker.scale.x
+            # pixels * (meters / pixels) / meters -> unitless scale
+            zoom = fx * (sprite_width_meters / sprite_width) / point3d[2]
+            # rospy.loginfo(f"zoom {zoom:0.3f}, angle {angle:0.2f}")
+            sprite.rotozoom(zoom=zoom, angle=np.degrees(angle))
+
+            rotated_width = sprite.sprite.size[0]
+            rotated_height = sprite.sprite.size[1]
+            sprite.update_position(points2d[point_ind, 0, 0] - rotated_width * 0.5,
+                                   points2d[point_ind, 0, 1] - rotated_height * 0.5)
+
+    # blank image
+    sdl2.ext.fill(sprite_renderer.surface, (0, 0, 0))
+
+    rospy.logdebug_throttle(1.0, f"update {len(sdl2_sprites.keys())} sprites")
+    sprites_to_render = []
+    for key, sprite_array in sdl2_sprites.items():
+        for sprite in sprite_array:
+            if not sprite.is_active:
+                continue
+            sprites_to_render.append(sprite.sprite)
+    sprite_renderer.render(sprites_to_render)
+
+    image_msg = None
+    if cv_bridge is not None:
+        t0 = rospy.Time.now()
+        image_data = sdl2.ext.pixels2d(sprite_renderer.surface).T
+        # t1 = rospy.Time.now()
+        image_rgb = image_data.view(np.uint8).reshape(image_data.shape + (4,))[..., :num_chan]
+        t2 = rospy.Time.now()
+        # cv bridge needs to convert from uint32 packed bytes to color channels
+        if num_chan == 3:
+            image_msg = cv_bridge.cv2_to_imgmsg(image_rgb, "bgr8")
+        elif num_chan == 4:
+            image_msg = cv_bridge.cv2_to_imgmsg(image_rgb, "bgra8")
+        else:
+            text = f"bad number of channels {num_chan}"
+            rospy.signal_shutdown(text)
+            raise Exception(text)
+        # image_msg = cv_bridge.cv2_to_imgmsg(image_data, "bgr8")
+        t3 = rospy.Time.now()
+        image_msg.header = camera_info.header
+
+        text = f"sdl2 to numpy array in {(t3 - t2).to_sec():0.3f}s + {(t2 - t0).to_sec():0.3f}s"
+        text += f", {image_data.shape} {image_rgb.shape} {image_msg.width} x {image_msg.height}"
+        rospy.logdebug_throttle(4.0, text)
+
+    return image_msg
 
 
 class SDL2Sprites(object):
@@ -132,6 +281,8 @@ class SDL2Sprites(object):
                 self.sdl2_sprites[key].append(sdl2_sprite)
 
         self.image_pub = rospy.Publisher("image", Image, queue_size=5)
+        self.update_duration_pub = rospy.Publisher(rospy.get_name() + "/update_duration",
+                                                   DurationStamped, queue_size=5)
 
         self.count = 0
 
@@ -175,6 +326,8 @@ class SDL2Sprites(object):
                     self.camera_infos.get()
 
     def camera_info_callback(self, msg):
+        # TODO(lucasw) can't tolerate a change in image dimensions currently, but could recreate the
+        # render surface but that will take some time
         if msg.width != self.init_camera_info.width or msg.height != self.init_camera_info.height:
             text = f"{msg.width} {msg.height} != {self.init_camera_info.width} {self.init_camera_info.height}"
             rospy.logwarn_throttle(2.0, text)
@@ -199,135 +352,19 @@ class SDL2Sprites(object):
                 rospy.logwarn("sdl2 quit")
                 rospy.signal_shutdown("sdl2 quit")
 
-        # get transforms of sprites relative to camera
-        rvec = np.zeros((1, 3))
-        tvec = np.zeros((1, 3))
-        camera_matrix = np.zeros((3, 3))
-        for y_ind in range(3):
-            for x_ind in range(3):
-                ind = y_ind * 3 + x_ind
-                camera_matrix[y_ind, x_ind] = camera_info.K[ind]
-        fx = camera_info.K[0]
-        # cx = camera_info.K[1]
-        # cy = camera_info.K[5]
-        dist_coeff = np.asarray(camera_info.D)
-
-        camera_frame = camera_info.header.frame_id
-        stamp = camera_info.header.stamp
-
-        for key, sprites in self.sdl2_sprites.items():
-            for sprite in sprites:
-                sprite.is_active = False
-
-        min_z = 0.01
-
-        for marker in marker_array.markers:
-            if marker.mesh_resource not in self.sdl2_sprites.keys():
-                rospy.logwarn_throttle(4.0, f"{marker.mesh_resource} not in {self.sdl2_sprites.keys()}")
-                # TODO(lucasw) load it right now and use it, don't have the config yaml param
-                continue
-            sprites = self.sdl2_sprites[marker.mesh_resource]
-
-            # TODO(lucasw) ignore marker.pose for now, but incorporate it later
-            try:
-                tfs = self.tf_buffer.lookup_transform(camera_frame, marker.header.frame_id,
-                                                      stamp, timeout=rospy.Duration(0.2))
-            except tf2_ros.LookupException as ex:
-                rospy.logwarn_throttle(4.0, ex)
-                return
-
-            pc2_in = marker_to_point_cloud2(marker)
-            pc2_in.header.stamp = stamp
-            # TODO(lucasw) probably a more efficient transform on a Point array than converting to PointCloud2
-            pc2_out = do_transform_cloud(pc2_in, tfs)
-            pc2_points = point_cloud2.read_points(pc2_out, field_names=("x", "y", "z"), skip_nans=True)
-
-            # don't want points behind the camera
-            points3d = [pt for pt in pc2_points if pt[2] > min_z]
-            # sort pc2_points by z, largest first, so can do painters algorithm
-            points3d.sort(key=lambda pt: pt[2], reverse=True)
-            num_points = len(points3d)
-            if num_points == 0:
-                continue
-            points_in_camera_frame = np.zeros((num_points, 3))
-            for pt_ind, pt in enumerate(points3d):
-                points_in_camera_frame[pt_ind, 0] = pt[0]
-                points_in_camera_frame[pt_ind, 1] = pt[1]
-                points_in_camera_frame[pt_ind, 2] = pt[2]
-
-            points2d, _ = cv2.projectPoints(points_in_camera_frame, rvec, tvec, camera_matrix, dist_coeff)
-            # rospy.loginfo(f"{camera_frame} to {key}:
-            #               {point.x:0.2f} {point.y:0.2f}
-            #               {point.z:0.2f}, {point2d[0]}")
-
-            # TODO(lucasw) if multiple markers use the same 'mesh_resource' only the last one will work
-            # - make it so they can all use sprites from the same pool (up to the max_sprites limit)
-            for point_ind, (point3d, sprite) in enumerate(zip(points3d, sprites)):
-                sprite.is_active = True
-                use_rotozoom = True
-                if not use_rotozoom:
-                    continue
-                rotation = tfs.transform.rotation
-                rotation_array = [rotation.x, rotation.y, rotation.z, rotation.w]
-
-                # want the z axis first, that's the angle around the axis pointing into the optical frame
-                # TODO(lucasw) not 100% that zxz is correct, but tried a lot of relative camera angles
-                euler = transformations.euler_from_quaternion(rotation_array, 'szxz')
-                angle = -euler[2]
-                # rospy.loginfo_throttle(1.0, f"euler {euler[0]:0.2f} {euler[1]:0.2f} {euler[2]:0.2f}")
-
-                sprite_width = sprite.sprite_original.size[0]
-                # TODO(lucasw) the right scale differs acrros the image depending on the
-                # instrinsics, otherwise there will be gaps- need to adjust for that
-                sprite_width_meters = marker.scale.x
-                # pixels * (meters / pixels) / meters -> unitless scale
-                zoom = fx * (sprite_width_meters / sprite_width) / point3d[2]
-                # rospy.loginfo(f"zoom {zoom:0.3f}, angle {angle:0.2f}")
-                sprite.rotozoom(zoom=zoom, angle=np.degrees(angle))
-
-                rotated_width = sprite.sprite.size[0]
-                rotated_height = sprite.sprite.size[1]
-                sprite.update_position(points2d[point_ind, 0, 0] - rotated_width * 0.5,
-                                       points2d[point_ind, 0, 1] - rotated_height * 0.5)
-
-        # blank image
-        sdl2.ext.fill(self.sprite_renderer.surface, (0, 0, 0))
-
-        rospy.logdebug_throttle(1.0, f"update {len(self.sdl2_sprites.keys())} sprites")
-        sprites_to_render = []
-        for key, sprite_array in self.sdl2_sprites.items():
-            for sprite in sprite_array:
-                if not sprite.is_active:
-                    continue
-                sprites_to_render.append(sprite.sprite)
-        self.sprite_renderer.render(sprites_to_render)
+        t0 = rospy.Time.now()
+        image_msg = render_markers(self.tf_buffer, marker_array, camera_info,
+                                   self.sdl2_sprites, self.sprite_renderer,
+                                   cv_bridge=self.cv_bridge, num_chan=self.num_chan)
+        t_elapsed = rospy.Time.now() - t0
+        ds = DurationStamped(header=camera_info.header, value=t_elapsed)
+        self.update_duration_pub.publish(ds)
 
         if self.show_sdl_window:
             self.window.refresh()
 
-        publish_image = True
-        if publish_image:
-            t0 = rospy.Time.now()
-            image_data = sdl2.ext.pixels2d(self.sprite_renderer.surface).T
-            # t1 = rospy.Time.now()
-            image_rgb = image_data.view(np.uint8).reshape(image_data.shape + (4,))[..., :self.num_chan]
-            t2 = rospy.Time.now()
-            # cv bridge needs to convert from uint32 packed bytes to color channels
-            if self.num_chan == 3:
-                image_msg = self.cv_bridge.cv2_to_imgmsg(image_rgb, "bgr8")
-            elif self.num_chan == 4:
-                image_msg = self.cv_bridge.cv2_to_imgmsg(image_rgb, "bgra8")
-            else:
-                text = f"bad number of channels {self.num_chan}"
-                rospy.signal_shutdown(text)
-                raise Exception(text)
-            # image_msg = self.cv_bridge.cv2_to_imgmsg(image_data, "bgr8")
-            t3 = rospy.Time.now()
-            image_msg.header = camera_info.header
+        if image_msg is not None:
             self.image_pub.publish(image_msg)
-            text = f"sdl2 to numpy array in {(t3 - t2).to_sec():0.3f}s + {(t2 - t0).to_sec():0.3f}s"
-            text += f", {image_data.shape} {image_rgb.shape} {image_msg.width} x {image_msg.height}"
-            rospy.logdebug_throttle(4.0, text)
 
         self.count += 1
 
