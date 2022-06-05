@@ -37,6 +37,8 @@
 
     <node name="generate_sprite_marker" pkg="sdl2_ros" type="generate_sprite_marker.py"
       output="screen">
+      <param name="frame_bg" value="camera1" />
+      <param name="image_bg" value="background" />
       <param name="frame0" value="map" />
       <param name="image0" value="ground" />
       <param name="frame1" value="map" />
@@ -48,6 +50,7 @@
     <node name="sdl2_sprites" pkg="sdl2_ros" type="sprites.py"
       output="screen">
       <rosparam param="images" subst_value="true">
+        background: "$(find vimjay)/data/gradient_line_soft.png"
         ground: "$(find vimjay)/data/diffract1.png"
         object: "$(find vimjay)/data/gradient_spiral.png"
         hud: "$(find vimjay)/data/asterisk.png"

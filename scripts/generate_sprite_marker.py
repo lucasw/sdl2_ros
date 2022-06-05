@@ -33,16 +33,34 @@ class SpriteMarkerArray():
     def __init__(self):
         self.pub = rospy.Publisher("marker_array", MarkerArray, queue_size=2, latch=True)
 
+        camera_frame = rospy.get_param("~camera_frame", "camera1")
+        world_frame = rospy.get_param("~world_frame", "map")
+
         marker_array = MarkerArray()
+
+        # background image behind all the other sprites
+        frame = rospy.get_param("~frame_bg", camera_frame)
+        image = rospy.get_param("~image_bg")
+        scale = rospy.get_param("~scale_bg", 1.0)
+        marker = make_marker(frame_id=frame)
+        marker.ns = "background"
+        marker.id = 0
+        # this has to be in sprites 'images' param dictionary
+        # TODO(lucasw) make this the path to the image
+        marker.mesh_resource = image
+        marker.scale.x = scale * 1.0
+        marker.scale.y = scale * 3.25
+        marker.points = [Point(0.0, 0.0, 1.0), Point(-1.0, 0.0, 1.0), Point(1.0, 0.0, 1.0)]
+        marker_array.markers.append(marker)
 
         # these ground and objects will be commingled together and sorted by z
         # because both have marker.id 0
-        frame = rospy.get_param("~frame0", "map")
+        frame = rospy.get_param("~frame0", world_frame)
         image = rospy.get_param("~image0")
         scale = rospy.get_param("~scale0", 0.2)
         marker = make_marker(frame_id=frame)
         marker.ns = "ground"
-        marker.id = 0
+        marker.id = 5
         # this has to be in sprites 'images' param dictionary
         # TODO(lucasw) make this the path to the image
         marker.mesh_resource = image
@@ -57,12 +75,12 @@ class SpriteMarkerArray():
                 marker.points.append(pt)
         marker_array.markers.append(marker)
 
-        frame = rospy.get_param("~frame1", "map")
+        frame = rospy.get_param("~frame1", world_frame)
         image = rospy.get_param("~image1")
         scale = rospy.get_param("~scale1", 0.5)
         marker = make_marker(frame_id=frame)
         marker.ns = "object"
-        marker.id = 0
+        marker.id = 5
         # this has to be in sprites 'images' param dictionary
         # TODO(lucasw) make this the path to the image
         marker.mesh_resource = image
@@ -80,7 +98,7 @@ class SpriteMarkerArray():
         marker_array.markers.append(marker)
 
         # this will be overlayed because marker.id is higher than above layers
-        frame = rospy.get_param("~frame_hud", "camera1")
+        frame = rospy.get_param("~frame_hud", camera_frame)
         image = rospy.get_param("~image_hud", "hud")
         marker = make_marker(frame_id=frame, scale=0.5)
         marker.ns = "hud"
