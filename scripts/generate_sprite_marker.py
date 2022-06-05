@@ -35,10 +35,13 @@ class SpriteMarkerArray():
 
         marker_array = MarkerArray()
 
+        # these ground and objects will be commingled together and sorted by z
+        # because both have marker.id 0
         frame = rospy.get_param("~frame0", "map")
         image = rospy.get_param("~image0")
         scale = rospy.get_param("~scale0", 0.2)
         marker = make_marker(frame_id=frame)
+        marker.ns = "ground"
         marker.id = 0
         # this has to be in sprites 'images' param dictionary
         # TODO(lucasw) make this the path to the image
@@ -58,7 +61,8 @@ class SpriteMarkerArray():
         image = rospy.get_param("~image1")
         scale = rospy.get_param("~scale1", 0.5)
         marker = make_marker(frame_id=frame)
-        marker.id = 1
+        marker.ns = "object"
+        marker.id = 0
         # this has to be in sprites 'images' param dictionary
         # TODO(lucasw) make this the path to the image
         marker.mesh_resource = image
@@ -74,6 +78,17 @@ class SpriteMarkerArray():
             pt = Point(x, y, z)
             marker.points.append(pt)
         marker_array.markers.append(marker)
+
+        # this will be overlayed because marker.id is higher than above layers
+        frame = rospy.get_param("~frame_hud", "camera1")
+        image = rospy.get_param("~image_hud", "hud")
+        marker = make_marker(frame_id=frame, scale=0.5)
+        marker.ns = "hud"
+        marker.id = 10
+        marker.mesh_resource = image
+        marker.points = [Point(-0.5, 0.5, 1.0)]
+        marker_array.markers.append(marker)
+
         self.pub.publish(marker_array)
 
 

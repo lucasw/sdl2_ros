@@ -57,7 +57,6 @@ class SDL2Sprite(object):
         self.sprite = sprite
         self.sprite_original = sprite_original
         self.update_position(x, y)
-        self.is_active = True
 
     def __repr__(self):
         return f"x {self.px:0.2f} y {self.py:0.2f}, {self.sprite.position}"
@@ -104,19 +103,18 @@ def render_markers(tf_buffer: tf2_ros.Buffer,
     camera_frame = camera_info.header.frame_id
     stamp = camera_info.header.stamp
 
-    # TODO(lucasw) is_active doesn't really belong in the object, it is only used
-    # within this function
-    for key, sprites in sdl2_sprites.items():
-        for sprite in sprites:
-            sprite.is_active = False
+    sprites_to_render_by_id = {}
 
     # TODO(lucasw) use marker id as layer to define the render order, within same id
     # layers use z distance to sort (currently marker order is used for layering)
     for marker in marker_array.markers:
+        if marker.id not in sprites_to_render_by_id.keys():
+            sprites_to_render_by_id[marker.id] = []
+
         # (mis)using mesh_resource as a key to what sprite image to use
         # TODO(lucasw) the mesh_resource could be a path to the image instead
         if marker.mesh_resource not in sdl2_sprites.keys():
-            rospy.logwarn_throttle(4.0, f"{marker.mesh_resource} not in {sdl2_sprites.keys()}")
+            rospy.logwarn_throttle(4.0, f"'{marker.mesh_resource}' not in {sdl2_sprites.keys()}")
             # TODO(lucasw) load it right now and use it, don't have the config yaml param
             continue
         sprites = sdl2_sprites[marker.mesh_resource]
@@ -137,6 +135,7 @@ def render_markers(tf_buffer: tf2_ros.Buffer,
 
         # don't want points behind the camera
         points3d = [pt for pt in pc2_points if pt[2] > min_z]
+        # TODO(lucasw) don't really need to sort here, going to sort later anyhow
         # sort pc2_points by z, largest first, so can do painters algorithm
         points3d.sort(key=lambda pt: pt[2], reverse=True)
         num_points = len(points3d)
@@ -156,7 +155,6 @@ def render_markers(tf_buffer: tf2_ros.Buffer,
         # TODO(lucasw) if multiple markers use the same 'mesh_resource' only the last one will work
         # - make it so they can all use sprites from the same pool (up to the max_sprites limit)
         for point_ind, (point3d, sprite) in enumerate(zip(points3d, sprites)):
-            sprite.is_active = True
             use_rotozoom = True
             if not use_rotozoom:
                 continue
@@ -174,7 +172,8 @@ def render_markers(tf_buffer: tf2_ros.Buffer,
             # instrinsics, otherwise there will be gaps- need to adjust for that
             sprite_width_meters = marker.scale.x
             # pixels * (meters / pixels) / meters -> unitless scale
-            zoom = fx * (sprite_width_meters / sprite_width) / point3d[2]
+            point3d_z = point3d[2]
+            zoom = fx * (sprite_width_meters / sprite_width) / point3d_z
             # rospy.loginfo(f"zoom {zoom:0.3f}, angle {angle:0.2f}")
             sprite.rotozoom(zoom=zoom, angle=np.degrees(angle))
 
@@ -182,17 +181,18 @@ def render_markers(tf_buffer: tf2_ros.Buffer,
             rotated_height = sprite.sprite.size[1]
             sprite.update_position(points2d[point_ind, 0, 0] - rotated_width * 0.5,
                                    points2d[point_ind, 0, 1] - rotated_height * 0.5)
+            sprites_to_render_by_id[marker.id].append((point3d_z, sprite))
 
     # blank image
     sdl2.ext.fill(sprite_renderer.surface, (0, 0, 0))
 
-    rospy.logdebug_throttle(1.0, f"update {len(sdl2_sprites.keys())} sprites")
     sprites_to_render = []
-    for key, sprite_array in sdl2_sprites.items():
-        for sprite in sprite_array:
-            if not sprite.is_active:
-                continue
-            sprites_to_render.append(sprite.sprite)
+    for key in sorted(sprites_to_render_by_id):
+        # list of tuples of z depth and sprites
+        z_sprites = sprites_to_render_by_id[key]
+        z_sprites.sort(key=lambda z_sprite: z_sprite[0], reverse=True)
+        sprites_to_render.extend([z_sprite[1].sprite for z_sprite in z_sprites])
+    rospy.logdebug_throttle(1.0, f"update {len(sprites_to_render)} sprites")
     sprite_renderer.render(sprites_to_render)
 
     image_msg = None
@@ -313,6 +313,7 @@ class SDL2Sprites(object):
                 self.update(event=None, camera_info=camera_info)
             except Exception as ex:
                 rospy.logwarn_throttle(5.0, ex)
+                # raise(ex)
                 continue
             rate.sleep()
             old_t0 = t0

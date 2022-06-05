@@ -41,6 +41,8 @@
       <param name="image0" value="ground" />
       <param name="frame1" value="map" />
       <param name="image1" value="object" />
+      <param name="frame_hud" value="camera1" />
+      <param name="image_hud" value="hud" />
     </node>
 
     <node name="sdl2_sprites" pkg="sdl2_ros" type="sprites.py"
@@ -48,6 +50,7 @@
       <rosparam param="images" subst_value="true">
         ground: "$(find vimjay)/data/diffract1.png"
         object: "$(find vimjay)/data/gradient_spiral.png"
+        hud: "$(find vimjay)/data/asterisk.png"
       </rosparam>
     </node>
 
