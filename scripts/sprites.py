@@ -333,9 +333,12 @@ class SDL2Sprites(object):
             try:
                 camera_info = self.camera_infos.get(timeout=1.0)
                 self.update(event=None, camera_info=camera_info)
+            except tf2_ros.ExtrapolationException as ex:
+                rospy.logwarn_throttle(5.0, ex)
+                continue
             except Exception as ex:
                 rospy.logwarn_throttle(5.0, ex)
-                # raise(ex)
+                raise(ex)
                 continue
             rate.sleep()
             old_t0 = t0
