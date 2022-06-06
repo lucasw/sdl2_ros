@@ -5,6 +5,7 @@
 #
 # rosrun sdl2_ros sdl2_sprites.py _image1:=`rospack find vimjay`/data/plasma.png
 
+import copy
 import queue
 from threading import Lock
 from typing import List
@@ -18,6 +19,7 @@ import sdl2.ext
 import sdl2.sdlgfx
 import tf2_ros
 from cv_bridge import CvBridge
+from ddynamic_reconfigure_python.ddynamic_reconfigure import DDynamicReconfigure
 from geometry_msgs.msg import Point
 from marti_common_msgs.msg import DurationStamped
 from sensor_msgs.msg import CameraInfo
@@ -97,7 +99,7 @@ def render_markers(tf_buffer: tf2_ros.Buffer,
                    renderer: sdl2.ext.SpriteRenderSystem,
                    cv_bridge: Optional[CvBridge] = None,
                    num_chan=3,
-                   min_z=0.01):
+                   min_z=0.01, max_z=100.0):
     camera_matrix, dist_coeff, rvec, tvec = camera_info_to_cv2(camera_info)
     fx = camera_info.K[0]
     camera_frame = camera_info.header.frame_id
@@ -134,7 +136,7 @@ def render_markers(tf_buffer: tf2_ros.Buffer,
         pc2_points = point_cloud2.read_points(pc2_out, field_names=("x", "y", "z"), skip_nans=True)
 
         # don't want points behind the camera
-        points3d = [pt for pt in pc2_points if pt[2] > min_z]
+        points3d = [pt for pt in pc2_points if (pt[2] > min_z and pt[2] < max_z)]
         # TODO(lucasw) don't really need to sort here, going to sort later anyhow
         # sort pc2_points by z, largest first, so can do painters algorithm
         points3d.sort(key=lambda pt: pt[2], reverse=True)
@@ -143,9 +145,8 @@ def render_markers(tf_buffer: tf2_ros.Buffer,
             continue
         points_in_camera_frame = np.zeros((num_points, 3))
         for pt_ind, pt in enumerate(points3d):
-            points_in_camera_frame[pt_ind, 0] = pt[0]
-            points_in_camera_frame[pt_ind, 1] = pt[1]
-            points_in_camera_frame[pt_ind, 2] = pt[2]
+            for i in range(3):
+                points_in_camera_frame[pt_ind, i] = pt[i]
 
         points2d, _ = cv2.projectPoints(points_in_camera_frame, rvec, tvec, camera_matrix, dist_coeff)
         # rospy.loginfo(f"{camera_frame} to {key}:
@@ -245,6 +246,13 @@ class SDL2Sprites(object):
         image_width = self.init_camera_info.width
         image_height = self.init_camera_info.height
 
+        self.config = None
+        ddr = DDynamicReconfigure("")
+        ddr.add_variable("min_z", "minimum z distance", 0.1, 0.0, 10.0)
+        ddr.add_variable("max_z", "maximum z distance", 10.0, 0.0, 1000.0)
+        self.ddr = ddr
+        self.ddr.start(self.ddr_callback)
+
         # can either be 3 or 4, 4 will be faster here but downstream nodes may not like
         # the alpha channel at all or will work slower
         # num_chan 3 is 15 ms, while 4 is < 1ms - maybe a downstream nodelet is faster?
@@ -340,6 +348,11 @@ class SDL2Sprites(object):
                 while self.camera_infos.qsize() > 1:
                     self.camera_infos.get()
 
+    def ddr_callback(self, config, level):
+        with self.lock:
+            self.config = copy.deepcopy(config)
+        return config
+
     def camera_info_callback(self, msg):
         # TODO(lucasw) can't tolerate a change in image dimensions currently, but could recreate the
         # render surface but that will take some time
@@ -361,6 +374,8 @@ class SDL2Sprites(object):
                 return
             self.marker_array = None
 
+            config = copy.deepcopy(self.config)
+
         events = sdl2.ext.get_events()
         for event in events:
             if event.type == sdl2.SDL_QUIT:
@@ -370,7 +385,8 @@ class SDL2Sprites(object):
         t0 = rospy.Time.now()
         image_msg = render_markers(self.tf_buffer, marker_array, camera_info,
                                    self.sdl2_sprites, self.renderer,
-                                   cv_bridge=self.cv_bridge, num_chan=self.num_chan)
+                                   cv_bridge=self.cv_bridge, num_chan=self.num_chan,
+                                   min_z=config.min_z, max_z=config.max_z)
         t_elapsed = rospy.Time.now() - t0
         ds = DurationStamped(header=camera_info.header, value=t_elapsed)
         self.update_duration_pub.publish(ds)
