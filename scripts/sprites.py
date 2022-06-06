@@ -94,7 +94,7 @@ def render_markers(tf_buffer: tf2_ros.Buffer,
                    marker_array: MarkerArray,
                    camera_info: CameraInfo,
                    sdl2_sprites: dict[SDL2Sprite],
-                   sprite_renderer: sdl2.ext.SpriteRenderSystem,
+                   renderer: sdl2.ext.SpriteRenderSystem,
                    cv_bridge: Optional[CvBridge] = None,
                    num_chan=3,
                    min_z=0.01):
@@ -184,7 +184,7 @@ def render_markers(tf_buffer: tf2_ros.Buffer,
             sprites_to_render_by_id[marker.id].append((point3d_z, sprite))
 
     # blank image
-    sdl2.ext.fill(sprite_renderer.surface, (0, 0, 0))
+    sdl2.ext.fill(renderer.surface, (0, 0, 0))
 
     sprites_to_render = []
     for key in sorted(sprites_to_render_by_id):
@@ -193,12 +193,12 @@ def render_markers(tf_buffer: tf2_ros.Buffer,
         z_sprites.sort(key=lambda z_sprite: z_sprite[0], reverse=True)
         sprites_to_render.extend([z_sprite[1].sprite for z_sprite in z_sprites])
     rospy.logdebug_throttle(1.0, f"update {len(sprites_to_render)} sprites")
-    sprite_renderer.render(sprites_to_render)
+    renderer.render(sprites_to_render)
 
     image_msg = None
     if cv_bridge is not None:
         t0 = rospy.Time.now()
-        image_data = sdl2.ext.pixels2d(sprite_renderer.surface).T
+        image_data = sdl2.ext.pixels2d(renderer.surface).T
         # t1 = rospy.Time.now()
         image_rgb = image_data.view(np.uint8).reshape(image_data.shape + (4,))[..., :num_chan]
         t2 = rospy.Time.now()
@@ -262,20 +262,33 @@ class SDL2Sprites(object):
         images = rospy.get_param("~images")
         rospy.loginfo(images)
 
-        self.sprite_renderer = self.factory.create_sprite_render_system(self.window)
+        self.renderer = self.factory.create_sprite_render_system(self.window)
+        self.renderer.blendmode = sdl2.blendmode.SDL_BLENDMODE_BLEND
         # self.renderer = sdl2.ext.Renderer(window)
         # sdl2.ext.set_texture_scale_quality(method="nearest")
 
         # max per sprite type, not total max
         max_sprites = rospy.get_param("~max_sprites", 200)
 
+        rospy.loginfo("setting up sprites")
         self.sdl2_sprites = {}
         for key, image_path in images.items():
             self.sdl2_sprites[key] = []
+            # TODO(lucasw) this loop is slow, this from_imagemay be reloading from disk repeatedly
+            # instead of caching
+            # this sprite doesn't get rotated so can be shared
+            sprite_original = self.factory.from_image(image_path)
+
+            base_sprite = self.factory.from_image(image_path)
+            width = base_sprite.size[0]
+            height = base_sprite.size[1]
             for i in range(max_sprites):
-                sprite = self.factory.from_image(image_path)
+                # this crashes
+                # sprite = copy.deepcopy(base_sprite)
+                # sprite = self.factory.from_image(image_path)
+                # this shares pixel data but different rotozooms can be applied
+                sprite = base_sprite.subsprite((0, 0, width, height))
                 # TODO(lucasw) how to make copy of sprite?
-                sprite_original = self.factory.from_image(image_path)
                 sdl2_sprite = SDL2Sprite(sprite, sprite_original, 0, 0)
                 # sdl2_sprite.rotozoom(angle=5.0 * i, zoom=0.5 + 0.1 * i)
                 self.sdl2_sprites[key].append(sdl2_sprite)
@@ -301,6 +314,7 @@ class SDL2Sprites(object):
         # but if initialization of sdl window etc. was moved into the update that probably works
         # self.timer = rospy.Timer(dt, self.update)
         rate = rospy.Rate(update_rate)
+        rospy.loginfo("starting render loop")
         old_t0 = rospy.Time.now()
         while not rospy.is_shutdown():
             t0 = rospy.Time.now()
@@ -355,7 +369,7 @@ class SDL2Sprites(object):
 
         t0 = rospy.Time.now()
         image_msg = render_markers(self.tf_buffer, marker_array, camera_info,
-                                   self.sdl2_sprites, self.sprite_renderer,
+                                   self.sdl2_sprites, self.renderer,
                                    cv_bridge=self.cv_bridge, num_chan=self.num_chan)
         t_elapsed = rospy.Time.now() - t0
         ds = DurationStamped(header=camera_info.header, value=t_elapsed)
