@@ -15,6 +15,7 @@
   <build_depend>sensor_msgs</build_depend>
   <build_depend>std_msgs</build_depend>
 
+  <run_depend>ddynamic_reconfigure_python</run_depend>
   <run_depend>marti_common_msgs</run_depend>
   <run_depend>roscpp</run_depend>
   <run_depend>roslint</run_depend>

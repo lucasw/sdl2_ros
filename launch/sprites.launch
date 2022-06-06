@@ -7,22 +7,26 @@
     output="screen">
     <param name="frame_id" value="map" />
     <param name="child_frame_id" value="tf1" />
-    <param name="base_x" value="0.25" />
+    <param name="base_x" value="0.0" />
     <param name="base_y" value="0.0" />
-    <param name="base_z" value="0.05" />
+    <param name="base_z" value="2.0" />
     <param name="roll" value="0.0" />
-    <param name="pitch" value="0.0" />
+    <param name="pitch" value="0.2" />
     <param name="yaw" value="0.0" />
+    <param name="vx" value="0.4" />
+    <param name="bound_x" value="2.0" />
+    <param name="enable_velocity" value="true" />
   </node>
 
   <group ns="camera1">
     <node name="map_camera_offset_broadcaster" pkg="tf" type="static_transform_publisher"
-      args="-2.0 0 1.0 -1.5707 0 -1.5707 map camera_offset 20" />
+      args="0.0 0 0.0 -1.5707 0 -1.5707 tf1 camera_offset 20" />
     <node name="camera_tf" pkg="rviz_interactive_tf" type="interactive_tf"
       output="screen">
       <param name="parent_frame" value="camera_offset" />
       <param name="frame" value="camera1" />
     </node>
+
     <node name="dr_camera_info" pkg="vimjay" type="dr_camera_info.py"
       output="screen" >
       <remap from="camera_info" to="camera_info" />
@@ -33,11 +37,12 @@
       <param name="cy" value="180" />
       <param name="fx" value="220" />
       <param name="fy" value="220" />
+      <param name="update_period" value="0.0333" />
     </node>
 
     <node name="generate_sprite_marker" pkg="sdl2_ros" type="generate_sprite_marker.py"
       output="screen">
-      <param name="frame_bg" value="camera1" />
+      <param name="frame_bg" value="tf1" />
       <param name="image_bg" value="background" />
       <param name="frame0" value="map" />
       <param name="image0" value="ground" />
@@ -50,11 +55,13 @@
     <node name="sdl2_sprites" pkg="sdl2_ros" type="sprites.py"
       output="screen">
       <rosparam param="images" subst_value="true">
-        background: "$(find vimjay)/data/gradient_line_soft.png"
-        ground: "$(find vimjay)/data/diffract1.png"
+        background: "$(find sdl2_ros)/data/sun.jpg"
+        ground: "$(find sdl2_ros)/data/line.png"
         object: "$(find vimjay)/data/gradient_spiral.png"
-        hud: "$(find vimjay)/data/asterisk.png"
+        hud: "$(find vimjay)/data/gradient_spiral.png"
       </rosparam>
+      <!-- hud: "$(find sdl2_ros)/data/turtlebot4_transparent.png" -->
+      <param name="max_z" value="9.0" />
     </node>
 
   </group>
