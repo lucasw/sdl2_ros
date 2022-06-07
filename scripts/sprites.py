@@ -107,6 +107,8 @@ def render_markers(tf_buffer: tf2_ros.Buffer,
 
     sprites_to_render_by_id = {}
 
+    num_input_points = []
+
     # TODO(lucasw) use marker id as layer to define the render order, within same id
     # layers use z distance to sort (currently marker order is used for layering)
     for marker in marker_array.markers:
@@ -128,6 +130,8 @@ def render_markers(tf_buffer: tf2_ros.Buffer,
         except tf2_ros.LookupException as ex:
             rospy.logwarn_throttle(4.0, ex)
             return
+        # rospy.loginfo_throttle(5.0, f"{camera_frame} {marker.header.frame_id}")
+        # rospy.loginfo_throttle(5.0, f"{marker.points}")
 
         pc2_in = marker_to_point_cloud2(marker)
         pc2_in.header.stamp = stamp
@@ -135,8 +139,12 @@ def render_markers(tf_buffer: tf2_ros.Buffer,
         pc2_out = do_transform_cloud(pc2_in, tfs)
         pc2_points = point_cloud2.read_points(pc2_out, field_names=("x", "y", "z"), skip_nans=True)
 
+        points3d = [pt for pt in pc2_points]
+        # rospy.loginfo_throttle(5.0, points3d)
+        num_input_points.append(len(points3d))
         # don't want points behind the camera
-        points3d = [pt for pt in pc2_points if (pt[2] > min_z and pt[2] < max_z)]
+        points3d = [pt for pt in points3d if (pt[2] > min_z)]
+        # points3d = [pt for pt in points3d if (pt[2] > min_z and pt[2] < max_z)]
         # TODO(lucasw) don't really need to sort here, going to sort later anyhow
         # sort pc2_points by z, largest first, so can do painters algorithm
         points3d.sort(key=lambda pt: pt[2], reverse=True)
@@ -175,6 +183,11 @@ def render_markers(tf_buffer: tf2_ros.Buffer,
             # pixels * (meters / pixels) / meters -> unitless scale
             point3d_z = point3d[2]
             zoom = fx * (sprite_width_meters / sprite_width) / point3d_z
+            max_zoom = 10.0
+            if zoom > max_zoom:
+                text = f"too much zoom {zoom:0.2f} = ({sprite_width_meters} / {sprite_width}) / {point3d_z}"
+                rospy.logwarn_throttle(2.0, text)
+                zoom = max_zoom
             # rospy.loginfo(f"zoom {zoom:0.3f}, angle {angle:0.2f}")
             sprite.rotozoom(zoom=zoom, angle=np.degrees(angle))
 
@@ -193,7 +206,7 @@ def render_markers(tf_buffer: tf2_ros.Buffer,
         z_sprites = sprites_to_render_by_id[key]
         z_sprites.sort(key=lambda z_sprite: z_sprite[0], reverse=True)
         sprites_to_render.extend([z_sprite[1].sprite for z_sprite in z_sprites])
-    rospy.logdebug_throttle(1.0, f"update {len(sprites_to_render)} sprites")
+    rospy.logdebug_throttle(5.0, f"update {len(sprites_to_render)} sprites out of {num_input_points} points")
     renderer.render(sprites_to_render)
 
     image_msg = None
@@ -235,10 +248,14 @@ class SDL2Sprites(object):
         self.cv_bridge = CvBridge()
         rospy.loginfo(f"SDL2 Version {sdl2.__version__}")
 
+        self.init_camera_info = None
         while not rospy.is_shutdown():
             try:
                 self.init_camera_info = rospy.wait_for_message("camera_info", CameraInfo, timeout=5.0)
-                break
+                # TODO(lucasw) init_camera_info should be a real CameraInfo or an exception?
+                # it seems like it sometimes returns with nothing and no exception (after a timeout?)
+                if self.init_camera_info is not None:
+                    break
             except Exception as ex:
                 rospy.logdebug(ex)
                 rospy.logwarn("waiting for camera_info...")
@@ -333,8 +350,11 @@ class SDL2Sprites(object):
             try:
                 camera_info = self.camera_infos.get(timeout=1.0)
                 self.update(event=None, camera_info=camera_info)
-            except tf2_ros.ExtrapolationException as ex:
+            except (tf2_ros.ExtrapolationException, tf2_ros.ConnectivityException) as ex:
                 rospy.logwarn_throttle(5.0, ex)
+                continue
+            except queue.Empty as ex:
+                rospy.logdebug_throttle(5.0, f"empty queue {ex}")
                 continue
             except Exception as ex:
                 rospy.logwarn_throttle(5.0, ex)
